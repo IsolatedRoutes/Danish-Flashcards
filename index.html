@@ -3505,7 +3505,7 @@ function SentencePanel({ engine, categories, addCategory, addCards, onOpenSettin
         style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 7 }}
       >
         {loading ? <Icon.Loader2 size={15} className="spin" /> : <Icon.Wand2 size={15} />}
-        {loading ? loadingCopy(engine) : "Check sentence"}
+        {loading ? loadingCopy(engine) : "Analyze sentence"}
       </button>
 
       <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
