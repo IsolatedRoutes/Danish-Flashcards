@@ -685,8 +685,8 @@ function fileToBase64(file) {
 // ============================================================
 
 const LOCAL_MODEL_OPTIONS = [
-  { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B (better quality, ~1GB)" },
-  { id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 0.5B (smaller & faster, ~500MB)" },
+  { id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 0.5B — recommended on phones (~500MB)" },
+  { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B — better quality, needs more memory (~1GB)" },
 ];
 const LOCAL_MODEL_ID = LOCAL_MODEL_OPTIONS[0].id;
 
@@ -1248,9 +1248,24 @@ function DanishFlashcards() {
       // Central choke point for every card-adding feature (manual, Chat,
       // Sentence, Translate, Photo) — guarding here means a malformed AI
       // response anywhere can never crash the app, just gets silently
-      // skipped instead of producing a card with a missing word.
+      // skipped instead of producing a card with a missing word. Also
+      // where duplicates get caught — matched on the Danish side, case-
+      // and whitespace-insensitive, against both the existing deck and
+      // other cards in this same batch.
+      const existingFronts = new Set(cards.map((c) => c.front.trim().toLowerCase()));
+      const seenInBatch = new Set();
+      const duplicateFronts = [];
       const stamped = newCards
         .filter((c) => c && c.front != null && c.back != null && String(c.front).trim() && String(c.back).trim())
+        .filter((c) => {
+          const key = String(c.front).trim().toLowerCase();
+          if (existingFronts.has(key) || seenInBatch.has(key)) {
+            duplicateFronts.push(String(c.front).trim());
+            return false;
+          }
+          seenInBatch.add(key);
+          return true;
+        })
         .map((c) => ({
           id: uid(),
           createdAt: Date.now(),
@@ -1263,7 +1278,15 @@ function DanishFlashcards() {
           back: String(c.back).trim(),
         }));
       if (stamped.length === 0) {
-        showToast("Couldn't add — missing word or translation");
+        if (duplicateFronts.length > 0) {
+          showToast(
+            duplicateFronts.length === 1
+              ? '"' + duplicateFronts[0] + '" is already in your deck — can\'t add'
+              : duplicateFronts.length + " of these are already in your deck — can't add"
+          );
+        } else {
+          showToast("Couldn't add — missing word or translation");
+        }
         return;
       }
       // Wait for the save to actually succeed before claiming it did —
@@ -1273,6 +1296,9 @@ function DanishFlashcards() {
       const result = await persistCards([...stamped, ...cards]);
       if (result.ok) {
         let msg = stamped.length === 1 ? "Card added" : stamped.length + " cards added";
+        if (duplicateFronts.length > 0) {
+          msg += " (" + duplicateFronts.length + (duplicateFronts.length === 1 ? " already in deck, skipped" : " already in deck, skipped") + ")";
+        }
         if (result.degraded && !degradedWarned.current) {
           degradedWarned.current = true;
           msg += result.memoryOnly
@@ -2786,9 +2812,8 @@ function AISettingsPanel({ onClose }) {
           <div style={{ border: "1.5px solid " + (engine === "local" ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 12 }}>
             <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Local model</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
-              Runs in this browser tab — free, no key, works offline after a one-time download. Needs WebGPU
-              (recent Chrome, Edge, or Safari). Weaker than Gemini at Danish, and heavier on a phone's battery and
-              storage. Can't do Photo import.
+              Free, no key, works offline after a one-time download. Needs WebGPU — recent Chrome/Edge, or Safari 26+
+              (iOS 26+ on iPhone). Weaker than Gemini at Danish, and can't do Photo import.
             </div>
             {modelReady && engine === "local" ? (
               <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>Connected</span>
