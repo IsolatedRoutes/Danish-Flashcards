@@ -713,16 +713,25 @@ async function getLocalEngine(onProgress, modelId) {
         throw new Error("LOCAL_MODEL_LOAD_FAILED");
       }
       let engine;
-      try {
-        engine = await webllm.CreateMLCEngine(targetModel, {
-          initProgressCallback: (report) => {
-            if (onProgress) onProgress(report);
-          },
-        });
-      } catch (e) {
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          engine = await webllm.CreateMLCEngine(targetModel, {
+            initProgressCallback: (report) => {
+              if (onProgress) onProgress(report);
+            },
+          });
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e;
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 1500)); // brief pause before one retry
+        }
+      }
+      if (lastError) {
         // Surface the real reason (usually a network/download failure
         // reaching Hugging Face) instead of a bare generic message.
-        throw new Error("LOCAL_MODEL_LOAD_FAILED: " + (e && e.message ? e.message : e));
+        throw new Error("LOCAL_MODEL_LOAD_FAILED: " + (lastError && lastError.message ? lastError.message : lastError));
       }
       return engine;
     })().catch((e) => {
@@ -737,7 +746,15 @@ async function callLocalText(system, userText, opts) {
   const history = (opts && opts.history) || [];
   const onProgress = opts && opts.onProgress;
   const engine = await getLocalEngine(onProgress);
-  const messages = [{ role: "system", content: system }, ...history, { role: "user", content: userText }];
+  // Small local models follow a normal conversational system prompt much
+  // less reliably than Gemini/Claude — they'll sometimes just answer in
+  // English instead of actually producing Danish. Spelling this out in
+  // blunt, repeated, explicit terms measurably helps smaller models
+  // comply, even though it reads as redundant for a stronger model.
+  const reinforcedSystem =
+    system +
+    " IMPORTANT: When asked for Danish, you must write actual Danish words and sentences — never just repeat or rephrase the English. Double-check that any Danish text you produce is genuinely Danish before responding.";
+  const messages = [{ role: "system", content: reinforcedSystem }, ...history, { role: "user", content: userText }];
   const reply = await engine.chat.completions.create({ messages });
   return reply.choices[0].message.content;
 }
@@ -812,7 +829,7 @@ async function callClaudeText(system, userText, opts) {
     method: "POST",
     headers,
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: maxTokens,
       system,
       messages: [...history, { role: "user", content: userText }],
@@ -828,7 +845,7 @@ async function callClaudeImage(system, userText, base64, mediaType) {
     method: "POST",
     headers,
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1500,
       system,
       messages: [
