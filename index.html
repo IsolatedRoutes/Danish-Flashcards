@@ -308,15 +308,14 @@ function CheckBadgeIcon({ size = 16, filled = false, style, onClick, onPointerDo
 
 // ---------- constants ----------
 
-const DEFAULT_CATEGORIES = [
-  { id: "verbs", name: "Verbs & Tense", custom: false },
-  { id: "gender", name: "Nouns & Gender (en/et)", custom: false },
-  { id: "structure", name: "Sentence Structure", custom: false },
-  { id: "conditional", name: "Conditional & Hypothetical", custom: false },
-  { id: "prepositions", name: "Prepositions", custom: false },
-  { id: "phrases", name: "Common Phrases", custom: false },
-  { id: "false-friends", name: "False Friends", custom: false },
-];
+const DEFAULT_CATEGORIES = [{ id: "grammar-lessons", name: "Grammar Lessons", custom: false }];
+
+// These used to be pre-seeded alongside the starter vocabulary, but they
+// sat empty next to near-identically-named starter categories (e.g. an
+// empty "Verbs & Tense" right next to a populated "Basic Verbs") — purely
+// confusing, since nothing ever auto-filed cards into them. Cleaned up
+// below for anyone who already has them saved from before.
+const LEGACY_EMPTY_CATEGORY_IDS = ["verbs", "gender", "structure", "conditional", "prepositions", "phrases", "false-friends"];
 
 const TYPE_LABEL = { word: "Word", sentence: "Sentence", grammar: "Grammar" };
 const TYPE_COLOR = { word: "#4C6B65", sentence: "#A1432E", grammar: "#7A5C8E" };
@@ -408,6 +407,8 @@ const STARTER_WORDS = {
     ["uheldig","unlucky"],["populær","popular"],["berømt","famous"],["ukendt","unknown"],["speciel","special"],
     ["normal","normal"],["mærkelig","strange"],["typisk","typical"],["muligt","possible"],["umuligt","impossible"],
     ["nødvendig","necessary"],["passende","suitable"],["praktisk","practical"],["moderne","modern"],["gammeldags","old-fashioned"],
+    ["orange","orange"],["lilla","purple"],["lyserød","pink"],["lyseblå","light blue"],["mørkeblå","dark blue"],
+    ["rund","round"],["firkantet","square-shaped"],["stribet","striped"],["ternet","checkered / plaid"],["ensfarvet","solid-colored"],
   ],
   "Numbers & Time": [
     ["en / et","one"],["to","two"],["tre","three"],["fire","four"],["fem","five"],
@@ -513,6 +514,8 @@ const STARTER_WORDS = {
     ["en orm","a worm"],["en slange","a snake"],["en frø","a frog"],["en skildpadde","a turtle"],["en ræv","a fox"],
     ["en ulv","a wolf"],["en bjørn","a bear"],["en hjort","a deer"],["et egern","a squirrel"],["en kanin","a rabbit"],
     ["en rotte","a rat"],
+    ["en dug","dew"],["en hagl","hail"],["et snefnug","a snowflake"],["en solnedgang","a sunset"],["en solopgang","a sunrise"],
+    ["en skygge","a shadow"],["en ørken","a desert"],["en vulkan","a volcano"],["en gletsjer","a glacier"],["et jordskælv","an earthquake"],
   ],
   "Body & Health": [
     ["en krop","a body"],["et hoved","a head"],["et hår","hair"],["et ansigt","a face"],["et øje","an eye"],
@@ -543,6 +546,7 @@ const STARTER_WORDS = {
     ["en skoletaske","a school bag"],["en blyant","a pencil"],["en pen","a pen"],["et viskelæder","an eraser"],["en linjal","a ruler"],
     ["en tavle","a blackboard"],["et whiteboard","a whiteboard"],["et studiekort","a student card"],["et stipendium","a scholarship"],["et studielån","a student loan"],
     ["en afgangseksamen","a final exam"],["et diplom","a diploma"],["en grad","a degree"],
+    ["en lektion","a lesson"],["en vikar","a substitute teacher"],["en rektor","a principal"],
   ],
   "Emotions & Personality": [
     ["en vrede","anger"],["en jalousi","jealousy"],["en skyld","guilt"],["en skam","shame"],["en stolthed","pride"],
@@ -1164,6 +1168,18 @@ function DanishFlashcards() {
         const raw = await storeGet("categories");
         if (raw) cat = JSON.parse(raw);
       } catch (e) {}
+
+      // One-time cleanup for anyone who already has the old confusing
+      // empty default categories saved — safe to drop only if nothing
+      // actually uses them, so real cards are never orphaned.
+      if (cat.some((cg) => LEGACY_EMPTY_CATEGORY_IDS.includes(cg.id))) {
+        const usedIds = new Set(c.map((card) => card.category));
+        const cleaned = cat.filter((cg) => !LEGACY_EMPTY_CATEGORY_IDS.includes(cg.id) || usedIds.has(cg.id));
+        if (cleaned.length !== cat.length) {
+          cat = cleaned;
+          await persistWithRetry("categories", JSON.stringify(cat));
+        }
+      }
 
       // First-ever launch: preload the starter vocabulary automatically so
       // it's just there, rather than something you have to go find and tap.
@@ -3282,8 +3298,8 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [selected, setSelected] = useState({});
+  const [itemCategory, setItemCategory] = useState({}); // da word -> category id, individually suggested per word
   const [error, setError] = useState("");
-  const [category, setCategory] = useState("");
 
   const [lookupInput, setLookupInput] = useState("");
   const [lookupResult, setLookupResult] = useState(null);
@@ -3330,18 +3346,40 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setError("");
     setAnalysis(null);
     try {
+      const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each.",
+        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
         "Text:\n" +
           text.slice(0, 3000) +
-          '\n\nRespond ONLY with JSON, no other text: {"grammarNotes": "...", "vocabulary": [{"da": "...", "en": "..."}]}',
+          "\n\nExisting categories to prefer if one fits: " +
+          (categoryNames || "(none yet)") +
+          '\n\nRespond ONLY with JSON, no other text: {"grammarNotes": "...", "vocabulary": [{"da": "...", "en": "...", "category": "..."}]}',
         { maxTokens: 1500 }
       );
       const parsed = parseJSONLoose(reply);
-      setAnalysis(parsed);
+      const vocab = parsed.vocabulary || [];
+      // Resolve each suggested category name to a real id up front (creating
+      // new ones as needed) so each row below can use a plain dropdown
+      // rather than its own "new category" flow. Tracked locally so two
+      // words suggesting the same new category name share one category
+      // instead of creating duplicates.
+      const workingCategories = [...categories];
       const sel = {};
-      (parsed.vocabulary || []).forEach((v) => (sel[v.da] = true));
+      const cats = {};
+      vocab.forEach((v) => {
+        const name = (v.category || "Uncategorized").trim();
+        let existing = workingCategories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+        if (!existing) {
+          const id = addCategory(name);
+          existing = { id, name, custom: true };
+          workingCategories.push(existing);
+        }
+        sel[v.da] = true;
+        cats[v.da] = existing.id;
+      });
+      setAnalysis(parsed);
       setSelected(sel);
+      setItemCategory(cats);
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally {
@@ -3351,16 +3389,15 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
 
   function addSelectedVocab() {
     if (!analysis) return;
-    let catId = category;
-    if (category.startsWith("__new__")) catId = addCategory(category.replace("__new__", "") || "From articles");
     const toAdd = (analysis.vocabulary || [])
       .filter((v) => selected[v.da])
-      .map((v) => ({ type: "word", front: v.da, back: v.en, category: catId }));
+      .map((v) => ({ type: "word", front: v.da, back: v.en, category: itemCategory[v.da] || categories[0]?.id }));
     if (toAdd.length === 0) return;
     addCards(toAdd);
     setText("");
     setAnalysis(null);
     setSelected({});
+    setItemCategory({});
   }
 
   return (
@@ -3455,28 +3492,33 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
 
           <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
             <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>
-              Suggested vocabulary — uncheck any you don't want.
+              Suggested vocabulary — uncheck any you don't want, and adjust the category if it's not quite right.
             </div>
             {(analysis.vocabulary || []).map((v, i) => (
-              <label key={i} style={rowCheck}>
-                <input type="checkbox" checked={!!selected[v.da]} onChange={(e) => setSelected({ ...selected, [v.da]: e.target.checked })} />
-                <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
-                  <span style={{ color: "var(--terracotta)" }}>{v.da}</span> — <span style={{ color: "var(--sage)" }}>{v.en}</span>
-                </span>
-              </label>
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                  <input type="checkbox" checked={!!selected[v.da]} onChange={(e) => setSelected({ ...selected, [v.da]: e.target.checked })} />
+                  <span style={{ fontFamily: "var(--sans)", fontSize: 13.5, minWidth: 0 }}>
+                    <span style={{ color: "var(--terracotta)" }}>{v.da}</span> —{" "}
+                    <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{v.en}</span>
+                  </span>
+                </label>
+                <select
+                  value={itemCategory[v.da] || ""}
+                  onChange={(e) => setItemCategory({ ...itemCategory, [v.da]: e.target.value })}
+                  style={{ ...inputStyle, width: "auto", padding: "5px 6px", fontSize: 11.5, flexShrink: 0 }}
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             ))}
           </div>
 
-          <Field label="Category">
-            <CategoryPicker
-              categories={categories}
-              value={category.startsWith("__new__") ? "" : category}
-              onChange={setCategory}
-              allowNew
-              onAddCategory={(name) => addCategory(name)}
-            />
-          </Field>
-          <button onClick={addSelectedVocab} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14 }}>
+          <button onClick={addSelectedVocab} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 12 }}>
             Add selected to deck
           </button>
         </div>
@@ -3496,7 +3538,7 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
   const [items, setItems] = useState([]);
   const [grammarNotes, setGrammarNotes] = useState("");
   const [selected, setSelected] = useState({});
-  const [category, setCategory] = useState("");
+  const [itemCategory, setItemCategory] = useState({}); // index -> category id, individually suggested per item
 
   useEffect(() => {
     (async () => {
@@ -3528,9 +3570,12 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     try {
       const base64 = await fileToBase64(file);
       const mediaType = file.type || "image/jpeg";
+      const categoryNames = categories.map((c) => c.name).join(", ");
       const system =
-        "You help an intermediate self-taught Danish learner build flashcards from photos of text (book pages, signs, notes, apps). First, briefly note any grammar or sentence structures worth pointing out in this specific text (2-3 sentences, plain English) — skip this if the image is just a word list with nothing notable. Then extract every distinct Danish word or sentence visible, with a natural English translation for each. Keep the vocabulary list focused and useful — skip page numbers, headers, or noise. " +
-        'Respond ONLY with JSON, no other text: {"grammarNotes": "...", "items": [{"danish": "...", "english": "...", "type": "word"}]} where "type" is "word" for single words/short phrases and "sentence" for full sentences. Use an empty string for grammarNotes if there is nothing worth noting.';
+        "You help an intermediate self-taught Danish learner build flashcards from photos of text (book pages, signs, notes, apps). First, briefly note any grammar or sentence structures worth pointing out in this specific text (2-3 sentences, plain English) — skip this if the image is just a word list with nothing notable. Then extract every distinct Danish word or sentence visible, with a natural English translation for each, and the single best-fitting category for each item individually (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different items usually mix nouns, verbs, and other parts of speech, so don't give them all the same category. Keep the vocabulary list focused and useful — skip page numbers, headers, or noise. " +
+        'Respond ONLY with JSON, no other text: {"grammarNotes": "...", "items": [{"danish": "...", "english": "...", "type": "word", "category": "..."}]} where "type" is "word" for single words/short phrases and "sentence" for full sentences. Use an empty string for grammarNotes if there is nothing worth noting. ' +
+        "Existing categories to prefer if one fits: " +
+        (categoryNames || "(none yet)");
       const userText = "Extract Danish vocabulary and sentences from this image.";
       const text =
         backend === "gemini"
@@ -3538,11 +3583,27 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
           : await callClaudeImage(system, userText, base64, mediaType);
       const parsed = parseJSONLoose(text);
       const list = parsed.items || [];
+      // Resolve each suggested category name to a real id up front (same
+      // approach as the text-extract panel) so each row can use a plain
+      // dropdown instead of its own "new category" flow.
+      const workingCategories = [...categories];
+      const sel = {};
+      const cats = {};
+      list.forEach((it, i) => {
+        const name = (it.category || "Uncategorized").trim();
+        let existing = workingCategories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+        if (!existing) {
+          const id = addCategory(name);
+          existing = { id, name, custom: true };
+          workingCategories.push(existing);
+        }
+        sel[i] = true;
+        cats[i] = existing.id;
+      });
       setItems(list);
       setGrammarNotes(parsed.grammarNotes || "");
-      const sel = {};
-      list.forEach((_, i) => (sel[i] = true));
       setSelected(sel);
+      setItemCategory(cats);
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally {
@@ -3551,11 +3612,9 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
   }
 
   function addSelected() {
-    let catId = category;
-    if (category.startsWith("__new__")) catId = addCategory(category.replace("__new__", "") || "From photos");
     const toAdd = items
       .filter((_, i) => selected[i])
-      .map((it) => ({ type: it.type === "sentence" ? "sentence" : "word", front: it.danish, back: it.english, category: catId }));
+      .map((it, i) => ({ type: it.type === "sentence" ? "sentence" : "word", front: it.danish, back: it.english, category: itemCategory[i] || categories[0]?.id }));
     if (toAdd.length === 0) return;
     addCards(toAdd);
     setItems([]);
@@ -3644,27 +3703,31 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
             </div>
           )}
           <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>
-            Found {items.length} item{items.length === 1 ? "" : "s"} — uncheck any you don't want.
+            Found {items.length} item{items.length === 1 ? "" : "s"} — uncheck any you don't want, and adjust the category if it's not quite right.
           </div>
           {items.map((it, i) => (
-            <label key={i} style={rowCheck}>
-              <input type="checkbox" checked={!!selected[i]} onChange={(e) => setSelected({ ...selected, [i]: e.target.checked })} />
-              <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
-                <span style={{ color: "var(--terracotta)" }}>{it.danish}</span> —{" "}
-                <span style={{ color: "var(--sage)" }}>{it.english}</span>
-              </span>
-            </label>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                <input type="checkbox" checked={!!selected[i]} onChange={(e) => setSelected({ ...selected, [i]: e.target.checked })} />
+                <span style={{ fontFamily: "var(--sans)", fontSize: 13.5, minWidth: 0 }}>
+                  <span style={{ color: "var(--terracotta)" }}>{it.danish}</span> —{" "}
+                  <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{it.english}</span>
+                </span>
+              </label>
+              <select
+                value={itemCategory[i] || ""}
+                onChange={(e) => setItemCategory({ ...itemCategory, [i]: e.target.value })}
+                style={{ ...inputStyle, width: "auto", padding: "5px 6px", fontSize: 11.5, flexShrink: 0 }}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           ))}
-          <Field label="Category">
-            <CategoryPicker
-              categories={categories}
-              value={category.startsWith("__new__") ? "" : category}
-              onChange={setCategory}
-              allowNew
-              onAddCategory={(name) => addCategory(name)}
-            />
-          </Field>
-          <button onClick={addSelected} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14 }}>
+          <button onClick={addSelected} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 6 }}>
             Add selected to deck
           </button>
         </div>
