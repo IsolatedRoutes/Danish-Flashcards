@@ -173,6 +173,20 @@ const Icon = {
       <line x1="12" y1="17" x2="12" y2="17.01" />
     </>
   )),
+  ArrowUp: makeIcon(() => (
+    <>
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="6,11 12,5 18,11" />
+    </>
+  )),
+  ArrowDown: makeIcon(() => (
+    <>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="6,13 12,19 18,13" />
+    </>
+  )),
+  ChevronUp: makeIcon(() => <polyline points="5,15 12,8 19,15" />),
+  ChevronDown: makeIcon(() => <polyline points="5,9 12,16 19,9" />),
   Check: makeIcon(() => <polyline points="4,12 9,17 20,6" />),
   X: makeIcon(() => (
     <>
@@ -1198,27 +1212,28 @@ function DanishFlashcards() {
         }
       }
 
-      // First-ever launch: preload the starter vocabulary automatically so
-      // it's just there, rather than something you have to go find and tap.
-      let alreadySeeded = null;
-      try {
-        alreadySeeded = await storeGet("starterVocabSeeded");
-      } catch (e) {}
-      if (c.length === 0 && !alreadySeeded) {
-        const { newCards, combinedCategories } = buildStarterAdditions(cat, new Set());
+      // Starter vocabulary should always just be complete — no manual
+      // button, no visible prompt. This quietly tops up anything missing,
+      // whether that's a first-ever launch with nothing yet, or an
+      // existing deck from before a later vocabulary expansion.
+      const existingFronts = new Set(c.map((card) => card.front.trim().toLowerCase()));
+      const { newCards, combinedCategories } = buildStarterAdditions(cat, existingFronts);
+      if (newCards.length > 0) {
         cat = combinedCategories;
-        c = newCards.map((card) => ({
-          id: uid(),
-          createdAt: Date.now(),
-          notes: "",
-          examples: [],
-          starred: false,
-          known: false,
-          ...card,
-        }));
+        c = [
+          ...c,
+          ...newCards.map((card) => ({
+            id: uid(),
+            createdAt: Date.now(),
+            notes: "",
+            examples: [],
+            starred: false,
+            known: false,
+            ...card,
+          })),
+        ];
         await persistWithRetry("categories", JSON.stringify(cat));
         await persistWithRetry("cards", JSON.stringify(c));
-        await storeSet("starterVocabSeeded", "true");
       }
 
       setCards(c);
@@ -2132,51 +2147,6 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   );
 }
 
-function StarterVocabButton({ cards, categories, persistCategories, addCards }) {
-  const existingFronts = useMemo(() => new Set(cards.map((c) => c.front.trim().toLowerCase())), [cards]);
-
-  const remaining = useMemo(() => {
-    let count = 0;
-    Object.values(STARTER_WORDS).forEach((list) =>
-      list.forEach(([da]) => {
-        if (!existingFronts.has(da.trim().toLowerCase())) count++;
-      })
-    );
-    return count;
-  }, [existingFronts]);
-
-  if (remaining === 0) return null;
-
-  function load() {
-    const { newCards, combinedCategories } = buildStarterAdditions(categories, existingFronts);
-    if (combinedCategories.length !== categories.length) persistCategories(combinedCategories);
-    if (newCards.length) addCards(newCards);
-  }
-
-  return (
-    <button
-      onClick={load}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        border: "1px dashed var(--fjord)",
-        background: "none",
-        color: "var(--fjord)",
-        borderRadius: 999,
-        padding: "7px 13px",
-        fontSize: 12.5,
-        fontFamily: "var(--sans)",
-        fontWeight: 600,
-        cursor: "pointer",
-        marginBottom: 12,
-      }}
-    >
-      <Icon.Download size={13} />
-      Add starter vocabulary ({remaining} word{remaining === 1 ? "" : "s"})
-    </button>
-  );
-}
 
 function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards, onOpenSettings }) {
   const [catFilter, setCatFilter] = useState("all");
@@ -2205,13 +2175,47 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
   });
 
   // "en"/"et" are grammatical-gender articles Danish nouns are stored
-  // with (e.g. "en hund") — strip them for sorting purposes so words
-  // alphabetize by their actual first letter, not "e" for everything.
-  const sortKey = (word) => word.replace(/^(en|et)\s+/i, "");
+  // with (e.g. "en hund") — strip them, then skip past any other
+  // leading non-letter characters (like the stray "/" in a card whose
+  // front is literally "en / et"), so both the sort order and the
+  // letter grouping agree on the same real first letter instead of one
+  // of them being thrown off by punctuation.
+  const sortKey = (word) => {
+    const stripped = word.replace(/^(en|et)\s+/i, "").trim();
+    const match = stripped.match(/[a-zA-ZæøåÆØÅ].*/s);
+    return match ? match[0] : stripped;
+  };
   const sorted = [...filtered].sort((a, b) => {
     const cmp = sortKey(a.front).localeCompare(sortKey(b.front), "da");
     return sortDir === "desc" ? -cmp : cmp;
   });
+
+  // Grouped into a collapsible A-Z (or Z-A) index — much less overwhelming
+  // to scroll through 1000+ cards than one long flat list. Danish's extra
+  // letters (æ, ø, å) sort after z, so they end up their own groups at
+  // the appropriate end depending on direction — that's correct Danish
+  // collation, not a bug, even though it can look surprising coming from
+  // English alphabetical order.
+  const letterOf = (word) => {
+    const key = sortKey(word);
+    return key ? key[0].toUpperCase() : "#";
+  };
+  const groups = [];
+  for (const c of sorted) {
+    const letter = letterOf(c.front);
+    const last = groups[groups.length - 1];
+    if (last && last.letter === letter) last.cards.push(c);
+    else groups.push({ letter, cards: [c] });
+  }
+  const [expandedLetters, setExpandedLetters] = useState(new Set());
+  function toggleLetter(letter) {
+    setExpandedLetters((prev) => {
+      const next = new Set(prev);
+      if (next.has(letter)) next.delete(letter);
+      else next.add(letter);
+      return next;
+    });
+  }
 
   const knownCount = cards.filter((c) => c.known).length;
 
@@ -2246,8 +2250,6 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
         />
       </div>
 
-      <StarterVocabButton cards={cards} categories={categories} persistCategories={persistCategories} addCards={addCards} />
-
       <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
         {["all", "word", "sentence", "grammar"].map((t) => (
           <Pill key={t} color="var(--rust)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
@@ -2270,49 +2272,89 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)" }}>Show:</span>
-        {[
-          { id: "all", label: "All cards" },
-          { id: "mine", label: "My cards" },
-          { id: "starter", label: "Starter vocabulary" },
-        ].map((o) => (
-          <Pill key={o.id} color="var(--fjord)" active={originFilter === o.id} onClick={() => setOriginFilter(o.id)}>
-            {o.label}
-          </Pill>
-        ))}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)" }}>Sort:</span>
-        <Pill color="var(--rust)" active={sortDir === "asc"} onClick={() => setSortDir("asc")}>
-          A–Z
-        </Pill>
-        <Pill color="var(--rust)" active={sortDir === "desc"} onClick={() => setSortDir("desc")}>
-          Z–A
-        </Pill>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)" }}>Show:</span>
+          {[
+            { id: "all", label: "All cards" },
+            { id: "mine", label: "My cards" },
+            { id: "starter", label: "Starter vocabulary" },
+          ].map((o) => (
+            <Pill key={o.id} color="var(--fjord)" active={originFilter === o.id} onClick={() => setOriginFilter(o.id)}>
+              {o.label}
+            </Pill>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)" }}>Sort:</span>
+          <button
+            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              border: "1px solid var(--line)",
+              background: "var(--card)",
+              borderRadius: 999,
+              padding: "5px 12px",
+              fontFamily: "var(--sans)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: "var(--ink)",
+              cursor: "pointer",
+            }}
+          >
+            {sortDir === "asc" ? "A–Z" : "Z–A"}
+            {sortDir === "asc" ? <Icon.ArrowDown size={12} /> : <Icon.ArrowUp size={12} />}
+          </button>
+        </div>
       </div>
 
       <div>
-        {sorted.length === 0 ? (
+        {groups.length === 0 ? (
           <EmptyState icon={Icon.Layers} title="No matching cards" body="Try a different filter, or add new cards from the Add tab or Chat." />
         ) : (
-          sorted.map((c) => (
-            <LibraryRow
-              key={c.id}
-              card={c}
-              categories={categories}
-              editing={editingId === c.id}
-              onEdit={() => setEditingId(editingId === c.id ? null : c.id)}
-              onSave={(patch) => {
-                updateCard(c.id, patch);
-                setEditingId(null);
-              }}
-              onToggleStar={() => updateCard(c.id, { starred: !c.starred })}
-              onToggleKnown={() => updateCard(c.id, { known: !c.known })}
-              onDelete={() => deleteCard(c.id)}
-              onExplore={() => openInsight(c)}
-            />
+          groups.map((g) => (
+            <div key={g.letter} style={{ marginBottom: 8 }}>
+              <button
+                onClick={() => toggleLetter(g.letter)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  border: "1px solid var(--line)",
+                  background: "var(--card)",
+                  borderRadius: 10,
+                  padding: "10px 14px",
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{g.letter}</span>
+                {expandedLetters.has(g.letter) ? <Icon.ChevronUp size={14} color="var(--muted)" /> : <Icon.ChevronDown size={14} color="var(--muted)" />}
+              </button>
+              {expandedLetters.has(g.letter) && (
+                <div style={{ marginTop: 8 }}>
+                  {g.cards.map((c) => (
+                    <LibraryRow
+                      key={c.id}
+                      card={c}
+                      categories={categories}
+                      editing={editingId === c.id}
+                      onEdit={() => setEditingId(editingId === c.id ? null : c.id)}
+                      onSave={(patch) => {
+                        updateCard(c.id, patch);
+                        setEditingId(null);
+                      }}
+                      onToggleStar={() => updateCard(c.id, { starred: !c.starred })}
+                      onToggleKnown={() => updateCard(c.id, { known: !c.known })}
+                      onDelete={() => deleteCard(c.id)}
+                      onExplore={() => openInsight(c)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           ))
         )}
       </div>
@@ -2439,6 +2481,7 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
   const [lookingUp, setLookingUp] = useState(false);
   const [lookupError, setLookupError] = useState("");
   const [autoFilling, setAutoFilling] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const categoryTouched = useRef(false);
 
   const copy = {
@@ -2508,6 +2551,14 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
     }
   }
 
+  // Explicit, tappable version of the same fill — the automatic
+  // on-leaving-the-field trigger is a nice bonus, but isn't discoverable
+  // on its own, so there needs to be a button that visibly does this.
+  function triggerAutoFill() {
+    if (front.trim() && !back.trim()) autoFill("da", front);
+    else if (back.trim() && !front.trim()) autoFill("en", back);
+  }
+
   async function lookupGrammar() {
     if (!front.trim()) return;
     setLookingUp(true);
@@ -2533,7 +2584,11 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
   }
 
   function submit() {
-    if (!front.trim() || !back.trim()) return;
+    if (!front.trim() || !back.trim()) {
+      setSubmitError("Fill in both fields before adding.");
+      return;
+    }
+    setSubmitError("");
     let catId = category;
     if (category.startsWith("__new__")) catId = addCategory(category.replace("__new__", "") || "New category");
     const cleanExamples = examples.filter((ex) => ex.da.trim() && ex.en.trim());
@@ -2555,13 +2610,42 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
     categoryTouched.current = false;
   }
 
+  function clearForm() {
+    setFront("");
+    setBack("");
+    setNotes("");
+    setExamples([{ da: "", en: "" }]);
+    setLookupError("");
+    setSubmitError("");
+    categoryTouched.current = false;
+  }
+
+  // Switching between Word/Sentence/Grammar changes what these fields
+  // actually mean (a Danish word vs. a full sentence vs. a grammar point
+  // name) — carrying over text typed under a different type is confusing
+  // rather than helpful, so this starts the new type with a clean form.
+  function changeType(t) {
+    setType(t);
+    clearForm();
+  }
+
   return (
     <div>
-      <SectionTitle>Add a card</SectionTitle>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <SectionTitle>Add a card</SectionTitle>
+        {(front || back || notes) && (
+          <button
+            onClick={clearForm}
+            style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "var(--muted)", fontFamily: "var(--sans)", fontSize: 12, cursor: "pointer", padding: 4 }}
+          >
+            <Icon.Trash2 size={12} /> Clear
+          </button>
+        )}
+      </div>
       <div style={{ height: 14 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {["word", "sentence", "grammar"].map((t) => (
-          <Pill key={t} color={TYPE_COLOR[t]} active={type === t} onClick={() => setType(t)}>
+          <Pill key={t} color={TYPE_COLOR[t]} active={type === t} onClick={() => changeType(t)}>
             {TYPE_LABEL[t]}
           </Pill>
         ))}
@@ -2576,6 +2660,31 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
           placeholder={copy.frontPlaceholder}
         />
       </Field>
+
+      {(type === "word" || type === "sentence") && (
+        <div style={{ marginTop: -6, marginBottom: 14 }}>
+          <button
+            onClick={triggerAutoFill}
+            disabled={autoFilling || !((front.trim() && !back.trim()) || (back.trim() && !front.trim()))}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              border: "none",
+              background: "none",
+              color: (front.trim() && !back.trim()) || (back.trim() && !front.trim()) ? "var(--fjord)" : "#B8B3A5",
+              fontFamily: "var(--sans)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: (front.trim() && !back.trim()) || (back.trim() && !front.trim()) ? "pointer" : "default",
+              padding: 0,
+            }}
+          >
+            {autoFilling ? <Icon.Loader2 size={12} className="spin" /> : <Icon.Wand2 size={12} />}
+            {autoFilling ? "Filling in…" : "Fill in translation"}
+          </button>
+        </div>
+      )}
 
       {type === "grammar" && (
         <div style={{ marginTop: -6, marginBottom: 14 }}>
@@ -2648,14 +2757,20 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
           allowNew
           onAddCategory={addCategory}
         />
-        {autoFilling && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 6, color: "var(--muted)", fontFamily: "var(--sans)", fontSize: 12 }}>
-            <Icon.Loader2 size={11} className="spin" /> Auto-filling…
-          </div>
-        )}
       </Field>
 
-      <button onClick={submit} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 4 }}>
+      {submitError && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 12.5, marginBottom: 8 }}>{submitError}</div>}
+      <button
+        onClick={submit}
+        style={{
+          ...smallBtn("var(--rust)"),
+          width: "100%",
+          padding: "11px",
+          fontSize: 14,
+          marginTop: 4,
+          opacity: front.trim() && back.trim() ? 1 : 0.5,
+        }}
+      >
         Add card
       </button>
     </div>
