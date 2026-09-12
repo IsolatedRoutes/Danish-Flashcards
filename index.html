@@ -3584,6 +3584,33 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
   const [lookupError, setLookupError] = useState("");
   const [lookupCategory, setLookupCategory] = useState(categories[0]?.id || "");
 
+  // Word-insight popup for the quick lookup — same deep-dive (forms,
+  // related words) as the lightbulb on a study card, since typing a
+  // single word here is exactly that same use case.
+  const [insightFor, setInsightFor] = useState(null); // the looked-up word this insight is for
+  const [insightText, setInsightText] = useState("");
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState("");
+
+  async function openInsight(word, meaning) {
+    setInsightFor(word);
+    setInsightError("");
+    setInsightText("");
+    setInsightLoading(true);
+    try {
+      const reply = await callAI(
+        WORD_INSIGHT_SYSTEM_PROMPT,
+        'Danish word or phrase: "' + word + '"' + (meaning ? " (means: " + meaning + ")" : ""),
+        { maxTokens: 700 }
+      );
+      setInsightText(reply.trim());
+    } catch (e) {
+      setInsightError(apiErrorMessage(e));
+    } finally {
+      setInsightLoading(false);
+    }
+  }
+
   async function lookup() {
     if (!lookupInput.trim()) return;
     setLookupLoading(true);
@@ -3723,8 +3750,15 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       {lookupResult && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }}>
           <div style={{ flex: 1, fontFamily: "var(--sans)", fontSize: 14, minWidth: 0 }}>
-            <span style={{ color: "var(--terracotta)" }}>{lookupResult.da}</span> — <span style={{ color: "var(--sage)" }}>{lookupResult.en}</span>
+            <span style={{ color: "var(--terracotta)" }}>{lookupResult.da}</span> — <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</span>
           </div>
+          <button
+            onClick={() => openInsight(lookupResult.da, lookupResult.en)}
+            aria-label="Explore related words"
+            style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+          >
+            <Icon.Lightbulb size={17} />
+          </button>
           <select
             value={lookupCategory.startsWith("__new__") ? "" : lookupCategory}
             onChange={(e) => {
@@ -3819,6 +3853,34 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
           <button onClick={addSelectedVocab} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 12 }}>
             Add selected to deck
           </button>
+        </div>
+      )}
+
+      {insightFor && (
+        <div
+          onClick={() => setInsightFor(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>{insightFor}</div>
+              <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                <Icon.X size={18} />
+              </button>
+            </div>
+            {insightLoading ? (
+              <div style={{ textAlign: "center", padding: "24px 0" }}>
+                <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
+              </div>
+            ) : insightError ? (
+              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+            ) : (
+              <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{insightText}</div>
+            )}
+          </div>
         </div>
       )}
     </div>
