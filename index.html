@@ -3421,9 +3421,9 @@ function SentencePanel({ engine, categories, addCategory, addCards, onOpenSettin
     setResult(null);
     try {
       const text = await callAI(
-        "You are a patient Danish tutor for an intermediate, self-taught learner who has foundational grammar gaps. The user will give you a sentence, in English or Danish, that they're trying to figure out how to say or understand correctly. " +
+        "You are a patient Danish tutor for an intermediate, self-taught learner who has foundational grammar gaps. The user will give you a sentence, in English or Danish, that they're trying to figure out how to say or understand correctly. If what they wrote in Danish has a grammar mistake, you must catch it and clearly point out what was wrong and why — don't silently correct it without mentioning the error, since missing their own mistakes doesn't help them learn. If they wrote in English, or their Danish was already correct, leave the correction note empty. " +
           "Identify the key grammar structure involved, explain it in plain, concise English (2-4 sentences, no jargon overload), give the correct Danish version of their sentence, and provide exactly 4 more example sentences that use the same grammar structure in different contexts. Also suggest one short category name for this grammar point. " +
-          'Respond ONLY with JSON in this exact shape, no other text: {"grammarName": "...", "explanation": "...", "mainExample": {"da": "...", "en": "..."}, "examples": [{"da":"...","en":"..."}, {"da":"...","en":"..."}, {"da":"...","en":"..."}, {"da":"...","en":"..."}], "suggestedCategory": "..."}',
+          'Respond ONLY with JSON in this exact shape, no other text: {"correctionNote": "...", "grammarName": "...", "explanation": "...", "mainExample": {"da": "...", "en": "..."}, "examples": [{"da":"...","en":"..."}, {"da":"...","en":"..."}, {"da":"...","en":"..."}, {"da":"...","en":"..."}], "suggestedCategory": "..."} — correctionNote should be an empty string when there was nothing to correct.',
         input.trim(),
         { maxTokens: 1500 }
       );
@@ -3493,13 +3493,30 @@ function SentencePanel({ engine, categories, addCategory, addCards, onOpenSettin
         style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 7 }}
       >
         {loading ? <Icon.Loader2 size={15} className="spin" /> : <Icon.Wand2 size={15} />}
-        {loading ? loadingCopy(engine) : "Analyze sentence"}
+        {loading ? loadingCopy(engine) : "Check sentence"}
       </button>
 
       <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
 
       {result && (
         <div style={{ marginTop: 18, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
+          {result.correctionNote && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+                background: "#FBECE6",
+                border: "1px solid var(--rust)",
+                borderRadius: 8,
+                padding: "9px 11px",
+                marginBottom: 12,
+              }}
+            >
+              <Icon.HelpCircle size={15} color="var(--rust)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontFamily: "var(--sans)", fontSize: 13, lineHeight: 1.45, color: "var(--rust)" }}>{result.correctionNote}</span>
+            </div>
+          )}
           <div style={{ fontFamily: "var(--serif)", fontSize: 17, marginBottom: 6 }}>{result.grammarName}</div>
           <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 10 }}>{result.explanation}</div>
 
@@ -3752,7 +3769,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       <div style={{ borderTop: "1px solid var(--line)", margin: "20px 0 16px" }} />
 
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
-        Or paste a longer article or text — I'll explain the grammar at work in it and suggest key vocabulary with
+        Or paste a longer article or passage — I'll pull out the key vocabulary worth learning from it, with
         translations you can confirm.
       </div>
       <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste Danish text here…" style={{ ...inputStyle, minHeight: 120 }} />
@@ -3762,7 +3779,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
         style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, opacity: text.trim() ? 1 : 0.5 }}
       >
         {analyzing ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Wand2 size={14} />}
-        {analyzing ? loadingCopy(engine) : "Analyze text"}
+        {analyzing ? loadingCopy(engine) : "Extract vocabulary"}
       </button>
 
       <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
