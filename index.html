@@ -3940,14 +3940,26 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     })();
   }, []);
 
-  function pickFile(e) {
-    const f = e.target.files?.[0];
+  const [dragActive, setDragActive] = useState(false);
+
+  function handleFile(f) {
     if (!f) return;
     setFile(f);
     setPreview(URL.createObjectURL(f));
     setItems([]);
     setGrammarNotes("");
     setError("");
+  }
+
+  function pickFile(e) {
+    handleFile(e.target.files?.[0]);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragActive(false);
+    const f = Array.from(e.dataTransfer.files || []).find((f) => f.type.startsWith("image/"));
+    if (f) handleFile(f);
   }
 
   function clearAll() {
@@ -4055,15 +4067,25 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
         </div>
       )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
-        Upload a screenshot of Danish text — a book, an app, a sign — and pull out words or sentences to add to your deck.
+        Upload a photo or screenshot of Danish text — a book, an app, a sign — and pull out words or sentences to add
+        to your deck.
       </div>
 
       <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={handleDrop}
         style={{
-          display: "block",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
           width: "100%",
-          border: "1px dashed var(--line)",
-          background: "var(--card)",
+          border: dragActive ? "2px dashed var(--fjord)" : "1px dashed var(--line)",
+          background: dragActive ? "#EEF2F0" : "var(--card)",
           borderRadius: 10,
           padding: preview ? 8 : 28,
           fontFamily: "var(--sans)",
@@ -4080,11 +4102,11 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
           style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", border: 0 }}
         />
         {preview ? (
-          <img src={preview} alt="Selected screenshot" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 6 }} />
+          <img src={preview} alt="Selected photo" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 6 }} />
         ) : (
           <>
             <Icon.Upload size={20} style={{ marginBottom: 6 }} />
-            <div>Tap to choose a screenshot</div>
+            <div>Tap to choose a photo or screenshot, or drag one here</div>
           </>
         )}
       </label>
