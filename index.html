@@ -159,6 +159,27 @@ const Icon = {
     </>
   )),
   Sparkles: makeIcon(() => <polygon points="12,3 14,10 21,12 14,14 12,21 10,14 3,12 10,10" />),
+  Lightbulb: makeIcon(() => (
+    <>
+      <path d="M9 18h6" />
+      <path d="M10 21h4" />
+      <path d="M12 3a6 6 0 0 0-4 10.5c.7.8 1 1.4 1 2.5h6c0-1.1.3-1.7 1-2.5A6 6 0 0 0 12 3z" />
+    </>
+  )),
+  Volume2: makeIcon(() => (
+    <>
+      <polygon points="4,9 8,9 12,5 12,19 8,15 4,15" />
+      <path d="M16 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 6a8.5 8.5 0 0 1 0 12" />
+    </>
+  )),
+  HelpCircle: makeIcon(() => (
+    <>
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="M9.3 9.3a2.7 2.7 0 1 1 3.9 2.4c-.9.5-1.2 1-1.2 2" />
+      <line x1="12" y1="17" x2="12" y2="17.01" />
+    </>
+  )),
   Check: makeIcon(() => <polyline points="4,12 9,17 20,6" />),
   X: makeIcon(() => (
     <>
@@ -635,6 +656,28 @@ function buildStarterAdditions(existingCategories, existingFrontsSet) {
 const WORD_INSIGHT_SYSTEM_PROMPT =
   "A Danish learner tapped a word or short phrase on their flashcard because they want to understand it more deeply. Explain it clearly and completely in plain English, in about 4-6 short flowing sentences (no headers, no bullet points): start with what kind of word it is and what it means; then include whichever of these genuinely applies — for a noun, its indefinite/definite singular and plural forms (e.g. en hund, hunden, hunde, hundene), noting plainly if it has no natural plural; for a verb, its principal forms (infinitive, present, past, past participle); for a preposition, adverb, or other small function word, 2-3 other common Danish words that share its root or pattern, and what that shared pattern actually means for the learner. Always finish your last sentence completely — never trail off or stop mid-thought.";
 
+// Speaks Danish text aloud using the browser's built-in text-to-speech —
+// no API call, no cost, works offline. Picks a Danish voice if the
+// browser has one installed; falls back to the browser's default voice
+// with the language tag set, which most browsers still pronounce
+// reasonably from.
+function speakDanish(text) {
+  if (!text || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.cancel(); // don't stack up overlapping speech
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "da-DK";
+    const voices = window.speechSynthesis.getVoices();
+    const daVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("da"));
+    if (daVoice) utter.voice = daVoice;
+    utter.rate = 0.92;
+    window.speechSynthesis.speak(utter);
+  } catch (e) {
+    // Silently do nothing — pronunciation is a nice-to-have, not
+    // something that should ever interrupt study with an error.
+  }
+}
+
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -666,12 +709,24 @@ function fileToBase64(file) {
 // reading images needs a much bigger model than a "very small" one.
 // ============================================================
 
-const LOCAL_MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+const LOCAL_MODEL_OPTIONS = [
+  { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B (better quality, ~1GB)" },
+  { id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 0.5B (smaller & faster, ~500MB)" },
+];
+const LOCAL_MODEL_ID = LOCAL_MODEL_OPTIONS[0].id;
 
 let localEnginePromise = null;
+let localEngineModelId = null;
 
-async function getLocalEngine(onProgress) {
+async function getLocalEngine(onProgress, modelId) {
+  const targetModel = modelId || LOCAL_MODEL_ID;
+  // If a different model was previously loaded, a fresh engine is needed
+  // rather than reusing the cached one for the wrong model.
+  if (localEnginePromise && localEngineModelId !== targetModel) {
+    localEnginePromise = null;
+  }
   if (!localEnginePromise) {
+    localEngineModelId = targetModel;
     localEnginePromise = (async () => {
       if (typeof navigator === "undefined" || !navigator.gpu) {
         throw new Error("WEBGPU_UNSUPPORTED");
@@ -682,11 +737,18 @@ async function getLocalEngine(onProgress) {
       } catch (e) {
         throw new Error("LOCAL_MODEL_LOAD_FAILED");
       }
-      const engine = await webllm.CreateMLCEngine(LOCAL_MODEL_ID, {
-        initProgressCallback: (report) => {
-          if (onProgress) onProgress(report);
-        },
-      });
+      let engine;
+      try {
+        engine = await webllm.CreateMLCEngine(targetModel, {
+          initProgressCallback: (report) => {
+            if (onProgress) onProgress(report);
+          },
+        });
+      } catch (e) {
+        // Surface the real reason (usually a network/download failure
+        // reaching Hugging Face) instead of a bare generic message.
+        throw new Error("LOCAL_MODEL_LOAD_FAILED: " + (e && e.message ? e.message : e));
+      }
       return engine;
     })().catch((e) => {
       localEnginePromise = null; // allow retrying later
@@ -904,9 +966,49 @@ function apiErrorMessage(e) {
   if (msg === "NO_ENGINE_CHOSEN") return "Choose an AI option in AI settings first.";
   if (msg === "WEBGPU_UNSUPPORTED")
     return "Your browser doesn't support the local model (needs WebGPU — try a recent Chrome or Edge), or switch to API key mode in AI settings.";
-  if (msg === "LOCAL_MODEL_LOAD_FAILED")
-    return "Couldn't load the local model. Check your connection, or switch to API key mode in AI settings.";
+  if (msg === "LOCAL_MODEL_LOAD_FAILED") return "Couldn't load the local model. Check your connection, or switch to API key mode in AI settings.";
+  if (msg && msg.indexOf("LOCAL_MODEL_LOAD_FAILED") === 0)
+    return "Couldn't load the local model (" + msg.replace("LOCAL_MODEL_LOAD_FAILED: ", "") + "). Check your connection, try a smaller model, or switch to API key mode in AI settings.";
   return "Something went wrong (" + (msg || "unknown error") + "). Try again.";
+}
+
+// A handful of error codes mean "this AI option isn't working right now" —
+// for those specifically, offer a quick way to switch rather than just
+// leaving the person stuck waiting. Matched against the already-formatted
+// text so every call site can reuse this without threading raw error
+// objects through extra state.
+function isSwitchableAIError(message) {
+  return !!message && /AI settings|free tier limits|rejected the API key|doesn't support the local model|Couldn't load the local model/i.test(message);
+}
+
+function AIErrorNote({ message, onOpenSettings }) {
+  if (!message) return null;
+  return (
+    <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13, marginTop: 8, lineHeight: 1.45 }}>
+      <div>{message}</div>
+      {onOpenSettings && isSwitchableAIError(message) && (
+        <button
+          onClick={onOpenSettings}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            border: "none",
+            background: "none",
+            color: "var(--fjord)",
+            fontFamily: "var(--sans)",
+            fontSize: 12.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            padding: 0,
+            marginTop: 6,
+          }}
+        >
+          <Icon.Key size={12} /> Choose another AI option
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ---------- shared UI bits ----------
@@ -1057,6 +1159,22 @@ function DanishFlashcards() {
   const [tab, setTab] = useState("study");
   const degradedWarned = useRef(false);
   const [toast, setToast] = useState(null);
+  const [engine, setEngine] = useState(undefined);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const refreshEngine = useCallback(() => {
+    getAIEngine().then((e) => setEngine(e));
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const e = await getAIEngine();
+      // getAIEngine() already defaults to "api" inside Claude when nothing
+      // has been explicitly chosen — an explicit choice (e.g. switching to
+      // Gemini) still takes priority over that default.
+      setEngine(e);
+    })();
+  }, []);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -1217,9 +1335,9 @@ function DanishFlashcards() {
 
   return (
     <Shell>
-      <Header cardCount={cards.length} />
+      <Header cardCount={cards.length} onOpenSettings={() => setShowSettings(true)} />
       <div style={{ padding: "0 16px calc(96px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "study" && <StudyView cards={cards} categories={categories} updateCard={updateCard} />}
+        {tab === "study" && <StudyView cards={cards} categories={categories} updateCard={updateCard} onOpenSettings={() => setShowSettings(true)} />}
         {tab === "library" && (
           <LibraryView
             cards={cards}
@@ -1228,15 +1346,49 @@ function DanishFlashcards() {
             deleteCard={deleteCard}
             persistCategories={persistCategories}
             addCards={addCards}
+            onOpenSettings={() => setShowSettings(true)}
           />
         )}
-        {tab === "add" && <AddCardView categories={categories} addCategory={addCategory} addCards={addCards} />}
+        {tab === "add" && <AddCardView categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={() => setShowSettings(true)} />}
         {tab === "chat" && (
-          <ChatView categories={categories} addCategory={addCategory} addCards={addCards} showToast={showToast} />
+          <ChatView
+            categories={categories}
+            addCategory={addCategory}
+            addCards={addCards}
+            showToast={showToast}
+            engine={engine}
+            onOpenSettings={() => setShowSettings(true)}
+          />
         )}
       </div>
       <TabBar tab={tab} setTab={setTab} />
       {toast && <Toast msg={toast} />}
+      {showSettings && (
+        <div
+          onClick={() => setShowSettings(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 60 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "82vh", overflowY: "auto" }}
+          >
+            <AISettingsPanel
+              onClose={(chosenEngine) => {
+                setShowSettings(false);
+                if (chosenEngine) {
+                  // Trust what was just chosen in this session rather than
+                  // re-reading storage, which can be unreliable in restricted
+                  // preview contexts (e.g. iOS Quick Look) even right after a
+                  // successful write.
+                  setEngine(chosenEngine);
+                } else {
+                  refreshEngine();
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -1285,7 +1437,7 @@ function Shell({ children }) {
   );
 }
 
-function Header({ cardCount }) {
+function Header({ cardCount, onOpenSettings }) {
   return (
     <div style={{ padding: "22px 18px 14px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
@@ -1295,6 +1447,15 @@ function Header({ cardCount }) {
         <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>
           {cardCount} card{cardCount === 1 ? "" : "s"}
         </span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+        <button
+          onClick={onOpenSettings}
+          style={{ border: "none", background: "none", color: "var(--muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontFamily: "var(--sans)", fontSize: 11.5, padding: 0 }}
+        >
+          <Icon.Key size={12} />
+          AI settings
+        </button>
       </div>
     </div>
   );
@@ -1376,14 +1537,16 @@ function Toast({ msg }) {
 
 // ---------- Study ----------
 
-function StudyView({ cards, categories, updateCard }) {
+function StudyView({ cards, categories, updateCard, onOpenSettings }) {
   const [catFilter, setCatFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
+  const [includeKnown, setIncludeKnown] = useState(false);
+  const [langDir, setLangDir] = useState("da-first"); // da-first | en-first
   const [flipped, setFlipped] = useState(false);
   const [idx, setIdx] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
   const [poolIds, setPoolIds] = useState([]);
-  const [direction, setDirection] = useState("next");
+  const [slideDir, setSlideDir] = useState("next");
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [exiting, setExiting] = useState(null); // null | "left" | "right"
@@ -1396,6 +1559,14 @@ function StudyView({ cards, categories, updateCard }) {
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
 
+  // Ask-about-this-word popup — a free-form follow-up question about
+  // whichever card is currently showing.
+  const [askFor, setAskFor] = useState(null);
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askAnswer, setAskAnswer] = useState("");
+  const [askLoading, setAskLoading] = useState(false);
+  const [askError, setAskError] = useState("");
+
   // The session's card order is frozen when it starts (or when a filter
   // changes) so marking a card known mid-session doesn't yank it out from
   // under you — it just turns the badge green. Future sessions won't
@@ -1403,7 +1574,7 @@ function StudyView({ cards, categories, updateCard }) {
   useEffect(() => {
     const ids = cards
       .filter((c) => {
-        if (c.known) return false;
+        if (!includeKnown && c.known) return false;
         if (catFilter !== "all" && c.category !== catFilter) return false;
         if (starredOnly && !c.starred) return false;
         return true;
@@ -1422,7 +1593,7 @@ function StudyView({ cards, categories, updateCard }) {
     setDragX(0);
     setExiting(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catFilter, starredOnly, sessionKey]);
+  }, [catFilter, starredOnly, includeKnown, sessionKey]);
 
   const current = cards.find((c) => c.id === poolIds[idx]);
 
@@ -1432,7 +1603,7 @@ function StudyView({ cards, categories, updateCard }) {
   useEffect(() => {
     if (!exiting) return;
     const t = setTimeout(() => {
-      setDirection(exiting === "left" ? "next" : "back");
+      setSlideDir(exiting === "left" ? "next" : "back");
       setFlipped(false);
       setIdx((i) => {
         if (exiting === "left") return i + 1 < poolIds.length ? i + 1 : poolIds.length;
@@ -1503,6 +1674,50 @@ function StudyView({ cards, categories, updateCard }) {
     }
   }
 
+  function openAsk(card) {
+    setAskFor(card.id);
+    setAskQuestion("");
+    setAskAnswer("");
+    setAskError("");
+  }
+
+  async function submitAsk() {
+    if (!askQuestion.trim()) return;
+    const card = cards.find((c) => c.id === askFor);
+    if (!card) return;
+    setAskLoading(true);
+    setAskError("");
+    try {
+      const reply = await callAI(
+        "You're a Danish tutor answering one specific follow-up question a learner has about a single flashcard word or phrase they're studying. Answer directly and concisely in plain English, focused only on what they actually asked.",
+        'The flashcard is: "' + card.front + '" (means: ' + card.back + '). Their question: "' + askQuestion.trim() + '"',
+        { maxTokens: 500 }
+      );
+      setAskAnswer(reply.trim());
+    } catch (e) {
+      setAskError(apiErrorMessage(e));
+    } finally {
+      setAskLoading(false);
+    }
+  }
+
+  function restartWith(mode) {
+    const sessionCards = poolIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
+    let ids;
+    if (mode === "unknown") ids = sessionCards.filter((c) => !c.known).map((c) => c.id);
+    else if (mode === "starred") ids = sessionCards.filter((c) => c.starred).map((c) => c.id);
+    else ids = sessionCards.map((c) => c.id); // "all"
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    setPoolIds(ids);
+    setIdx(0);
+    setFlipped(false);
+    setDragX(0);
+    setExiting(null);
+  }
+
   if (cards.length === 0) {
     return (
       <EmptyState
@@ -1513,15 +1728,53 @@ function StudyView({ cards, categories, updateCard }) {
     );
   }
 
+  const sessionCards = poolIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
+  const knownNowCount = sessionCards.filter((c) => c.known).length;
+  const stillUnknownCount = sessionCards.length - knownNowCount;
+  const starredInSessionCount = sessionCards.filter((c) => c.starred).length;
+
   return (
     <div>
       <div style={{ marginBottom: 10 }}>
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
       </div>
-      <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
-        <input type="checkbox" checked={starredOnly} onChange={(e) => setStarredOnly(e.target.checked)} />
-        Starred only
-      </label>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
+          ★ Starred only
+        </Pill>
+        <Pill color="#4C8A5E" active={includeKnown} onClick={() => setIncludeKnown(!includeKnown)}>
+          ✓ Include known
+        </Pill>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <button
+          onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            border: "1px solid var(--line)",
+            background: "var(--card)",
+            borderRadius: 999,
+            padding: "5px 11px",
+            fontFamily: "var(--sans)",
+            fontSize: 12,
+            color: "var(--muted)",
+            cursor: "pointer",
+          }}
+        >
+          {langDir === "da-first" ? (
+            <>
+              <span style={{ color: "var(--terracotta)" }}>Dansk</span> → <span style={{ fontStyle: "italic" }}>English</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontStyle: "italic" }}>English</span> → <span style={{ color: "var(--terracotta)" }}>Dansk</span>
+            </>
+          )}
+          <Icon.RotateCcw size={11} />
+        </button>
+      </div>
 
       {!current ? (
         <div style={{ textAlign: "center", padding: "40px 10px" }}>
@@ -1530,23 +1783,45 @@ function StudyView({ cards, categories, updateCard }) {
             {poolIds.length === 0 ? "Nothing left to study here" : "Session complete"}
           </div>
           <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-            {poolIds.length === 0 ? "Everything in this view is marked known, or try a different filter." : "Nice work."}
+            {poolIds.length === 0
+              ? "Everything in this view is marked known, or try a different filter."
+              : knownNowCount + " known · " + stillUnknownCount + " still to review"}
           </div>
+          {poolIds.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 16 }}>
+              {stillUnknownCount > 0 && (
+                <button onClick={() => restartWith("unknown")} style={smallBtn("var(--rust)")}>
+                  Re-review unknown
+                </button>
+              )}
+              {starredInSessionCount > 0 && (
+                <button onClick={() => restartWith("starred")} style={smallBtn("var(--fjord)")}>
+                  Re-review starred
+                </button>
+              )}
+              <button onClick={() => restartWith("all")} style={smallBtn("#8A8577")}>
+                Re-review all
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setSessionKey((k) => k + 1)}
             style={{
-              marginTop: 16,
-              border: "1px solid var(--line)",
-              background: "var(--card)",
-              borderRadius: 8,
-              padding: "8px 16px",
+              marginTop: 10,
+              border: "none",
+              background: "none",
+              color: "var(--muted)",
               fontFamily: "var(--sans)",
-              fontSize: 13,
+              fontSize: 12.5,
               cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              margin: "10px auto 0",
             }}
           >
-            <Icon.RotateCcw size={13} style={{ verticalAlign: -2, marginRight: 5 }} />
-            Restart session
+            <Icon.RotateCcw size={12} />
+            Start a fresh session
           </button>
         </div>
       ) : (
@@ -1556,7 +1831,7 @@ function StudyView({ cards, categories, updateCard }) {
           </div>
           <div
             key={current.id}
-            className={direction === "back" ? "card-enter-back" : "card-enter-next"}
+            className={slideDir === "back" ? "card-enter-back" : "card-enter-next"}
             onPointerDown={(e) => {
               e.currentTarget.setPointerCapture(e.pointerId);
               onGestureStart(e.clientX, e.clientY);
@@ -1582,7 +1857,7 @@ function StudyView({ cards, categories, updateCard }) {
             <CheckBadgeIcon
               size={17}
               filled={!!current.known}
-              style={{ position: "absolute", top: 12, left: 12, zIndex: 2, cursor: "pointer" }}
+              style={{ position: "absolute", top: 12, right: 12, zIndex: 2, cursor: "pointer" }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1593,13 +1868,35 @@ function StudyView({ cards, categories, updateCard }) {
               size={17}
               filled={!!current.starred}
               color={current.starred ? "var(--rust)" : "#C9C4B6"}
-              style={{ position: "absolute", top: 12, right: 12, zIndex: 2, cursor: "pointer" }}
+              style={{ position: "absolute", top: 12, left: 12, zIndex: 2, cursor: "pointer" }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 updateCard(current.id, { starred: !current.starred });
               }}
             />
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                openAsk(current);
+              }}
+              aria-label="Ask about this word"
+              style={{ position: "absolute", bottom: 10, left: 10, zIndex: 2, border: "none", background: "none", color: "#C9C4B6", cursor: "pointer", padding: 6, display: "flex" }}
+            >
+              <Icon.HelpCircle size={16} />
+            </button>
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                openInsight(current);
+              }}
+              aria-label="Explore related words"
+              style={{ position: "absolute", bottom: 10, right: 10, zIndex: 2, border: "none", background: "none", color: "#C9C4B6", cursor: "pointer", padding: 6, display: "flex" }}
+            >
+              <Icon.Lightbulb size={16} />
+            </button>
 
             <div style={{ perspective: 1200 }}>
               <div
@@ -1612,7 +1909,7 @@ function StudyView({ cards, categories, updateCard }) {
                   transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
                 }}
               >
-                {/* Front — Danish */}
+                {/* Front face — shows Danish or English first depending on the direction toggle */}
                 <div
                   style={{
                     position: "absolute",
@@ -1625,36 +1922,31 @@ function StudyView({ cards, categories, updateCard }) {
                     textAlign: "center",
                   }}
                 >
-                  <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
-                    {current.front}
-                  </div>
-                  {!flipped && (
-                    <button
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openInsight(current);
-                      }}
-                      aria-label="Explore related words"
-                      style={{
-                        position: "absolute",
-                        bottom: 10,
-                        right: 10,
-                        zIndex: 2,
-                        border: "none",
-                        background: "none",
-                        color: "#C9C4B6",
-                        cursor: "pointer",
-                        padding: 6,
-                        display: "flex",
-                      }}
-                    >
-                      <Icon.Sparkles size={16} />
-                    </button>
+                  {langDir === "da-first" ? (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
+                        {current.front}
+                      </div>
+                      <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          speakDanish(current.front);
+                        }}
+                        aria-label="Pronounce"
+                        style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                      >
+                        <Icon.Volume2 size={18} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: current.type === "word" ? 26 : 18, lineHeight: 1.4, color: "var(--sage)" }}>
+                      {current.back}
+                    </div>
                   )}
                 </div>
 
-                {/* Back — English + notes/examples */}
+                {/* Back face — the other language, plus notes/examples */}
                 <div
                   style={{
                     position: "absolute",
@@ -1670,9 +1962,28 @@ function StudyView({ cards, categories, updateCard }) {
                     overflowY: "auto",
                   }}
                 >
-                  <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: current.type === "word" ? 26 : 18, lineHeight: 1.4, color: "var(--sage)" }}>
-                    {current.back}
-                  </div>
+                  {langDir === "da-first" ? (
+                    <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: current.type === "word" ? 26 : 18, lineHeight: 1.4, color: "var(--sage)" }}>
+                      {current.back}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
+                        {current.front}
+                      </div>
+                      <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          speakDanish(current.front);
+                        }}
+                        aria-label="Pronounce"
+                        style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                      >
+                        <Icon.Volume2 size={18} />
+                      </button>
+                    </div>
+                  )}
                   {current.notes && (
                     <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginTop: 8 }}>{current.notes}</div>
                   )}
@@ -1680,7 +1991,7 @@ function StudyView({ cards, categories, updateCard }) {
                     <div style={{ marginTop: 10, width: "100%", textAlign: "left" }}>
                       {current.examples.slice(0, 3).map((ex, i) => (
                         <div key={i} style={{ fontFamily: "var(--sans)", fontSize: 12.5, marginBottom: 3 }}>
-                          <span style={{ color: "var(--terracotta)" }}>{ex.da}</span> <span style={{ color: "var(--sage)" }}>— {ex.en}</span>
+                          <span style={{ color: "var(--terracotta)" }}>{ex.da}</span> <span style={{ color: "var(--sage)", fontStyle: "italic" }}>— {ex.en}</span>
                         </div>
                       ))}
                     </div>
@@ -1767,11 +2078,48 @@ function StudyView({ cards, categories, updateCard }) {
                 <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
               </div>
             ) : insightError ? (
-              <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5 }}>{insightError}</div>
+              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
             ) : (
               <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
                 {insightCache[insightFor]}
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {askFor && (
+        <div
+          onClick={() => setAskFor(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
+                Ask about "{cards.find((c) => c.id === askFor)?.front}"
+              </div>
+              <button onClick={() => setAskFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                <Icon.X size={18} />
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <input
+                value={askQuestion}
+                onChange={(e) => setAskQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitAsk()}
+                placeholder='e.g. "how do you say the noun version of this?"'
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button onClick={submitAsk} disabled={askLoading || !askQuestion.trim()} style={smallBtn("var(--fjord)")}>
+                {askLoading ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Send size={14} />}
+              </button>
+            </div>
+            {askError && <AIErrorNote message={askError} onOpenSettings={onOpenSettings} />}
+            {askAnswer && (
+              <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{askAnswer}</div>
             )}
           </div>
         </div>
@@ -1826,7 +2174,7 @@ function StarterVocabButton({ cards, categories, persistCategories, addCards }) 
   );
 }
 
-function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards }) {
+function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards, onOpenSettings }) {
   const [catFilter, setCatFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
@@ -1852,8 +2200,12 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
     return true;
   });
 
+  // "en"/"et" are grammatical-gender articles Danish nouns are stored
+  // with (e.g. "en hund") — strip them for sorting purposes so words
+  // alphabetize by their actual first letter, not "e" for everything.
+  const sortKey = (word) => word.replace(/^(en|et)\s+/i, "");
   const sorted = [...filtered].sort((a, b) => {
-    const cmp = a.front.localeCompare(b.front, "da");
+    const cmp = sortKey(a.front).localeCompare(sortKey(b.front), "da");
     return sortDir === "desc" ? -cmp : cmp;
   });
 
@@ -1983,7 +2335,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
                 <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
               </div>
             ) : insightError ? (
-              <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5 }}>{insightError}</div>
+              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
             ) : (
               <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{insightCache[insightFor]}</div>
             )}
@@ -2057,7 +2409,7 @@ function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, o
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={onExplore} style={iconBtn} aria-label="Explore related words">
-            <Icon.Sparkles size={15} />
+            <Icon.Lightbulb size={15} />
           </button>
           <button onClick={onEdit} style={iconBtn}>
             <Icon.Edit3 size={15} />
@@ -2073,7 +2425,7 @@ function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, o
 
 // ---------- Add Card ----------
 
-function AddCardView({ categories, addCategory, addCards }) {
+function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
   const [type, setType] = useState("word");
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
@@ -2126,7 +2478,7 @@ function AddCardView({ categories, addCategory, addCards }) {
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help fill in a Danish learner's flashcard. Given a single word or short phrase, give its natural translation and the single best-fitting category for it.",
+        "You help fill in a Danish learner's flashcard. Given a single word or short phrase, give its natural translation and the single best-fitting category for it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         (direction === "da" ? "Danish" : "English") +
           ' text: "' +
           trimmed +
@@ -2243,7 +2595,7 @@ function AddCardView({ categories, addCategory, addCards }) {
             {lookingUp ? <Icon.Loader2 size={12} className="spin" /> : <Icon.Wand2 size={12} />}
             {lookingUp ? "Asking…" : "Ask AI to explain this"}
           </button>
-          {lookupError && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 12.5, marginTop: 6 }}>{lookupError}</div>}
+          <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
         </div>
       )}
 
@@ -2326,6 +2678,8 @@ function AISettingsPanel({ onClose }) {
   const [modelReady, setModelReady] = useState(!!localEnginePromise);
   const [showMore, setShowMore] = useState(false);
   const [error, setError] = useState("");
+  const [confirmingModel, setConfirmingModel] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState(LOCAL_MODEL_ID);
 
   useEffect(() => {
     (async () => {
@@ -2362,10 +2716,11 @@ function AISettingsPanel({ onClose }) {
   }
 
   async function loadModelNow() {
+    setConfirmingModel(false);
     setLoadingModel(true);
     setError("");
     try {
-      await getLocalEngine((report) => setModelProgress(report.text || ""));
+      await getLocalEngine((report) => setModelProgress(report.text || ""), selectedModelId);
       setModelReady(true);
       await chooseEngine("local");
       onClose("local");
@@ -2405,15 +2760,20 @@ function AISettingsPanel({ onClose }) {
         </div>
 
         {savedGeminiKey ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>
               {geminiActive ? "Connected" : "Key saved"}
             </span>
-            {!geminiActive && (
-              <button onClick={() => chooseEngine("gemini")} style={smallBtn("var(--fjord)")}>
-                Use this
+            <div style={{ display: "flex", gap: 8 }}>
+              {!geminiActive && (
+                <button onClick={() => chooseEngine("gemini")} style={smallBtn("var(--fjord)")}>
+                  Use this
+                </button>
+              )}
+              <button onClick={() => setSavedGeminiKey(null)} style={smallBtn("#A8A395")}>
+                Change key
               </button>
-            )}
+            </div>
           </div>
         ) : (
           <>
@@ -2465,14 +2825,40 @@ function AISettingsPanel({ onClose }) {
           <div style={{ border: "1.5px solid " + (engine === "local" ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 12 }}>
             <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Local model</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
-              Runs in this browser tab — free, no key, works offline after a one-time ~1GB download. Needs WebGPU
+              Runs in this browser tab — free, no key, works offline after a one-time download. Needs WebGPU
               (recent Chrome, Edge, or Safari). Weaker than Gemini at Danish, and heavier on a phone's battery and
               storage. Can't do Photo import.
             </div>
             {modelReady && engine === "local" ? (
               <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>Connected</span>
+            ) : confirmingModel ? (
+              <div>
+                <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Choose a model:</div>
+                <select
+                  value={selectedModelId}
+                  onChange={(e) => setSelectedModelId(e.target.value)}
+                  style={{ ...inputStyle, marginBottom: 10 }}
+                >
+                  {LOCAL_MODEL_OPTIONS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+                  This downloads several hundred MB to this browser from Hugging Face. Continue?
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={loadModelNow} style={smallBtn("var(--rust)")}>
+                    Download & use
+                  </button>
+                  <button onClick={() => setConfirmingModel(false)} style={smallBtn("#A8A395")}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             ) : (
-              <button onClick={loadModelNow} disabled={loadingModel} style={smallBtn("var(--rust)")}>
+              <button onClick={() => setConfirmingModel(true)} disabled={loadingModel} style={smallBtn("var(--rust)")}>
                 {loadingModel ? modelProgress || "Loading model…" : "Load local model"}
               </button>
             )}
@@ -2484,15 +2870,20 @@ function AISettingsPanel({ onClose }) {
               Best quality, small per-use cost. From console.anthropic.com.
             </div>
             {savedKey ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>
                   {engine === "api" ? "Connected" : "Key saved"}
                 </span>
-                {engine !== "api" && (
-                  <button onClick={() => chooseEngine("api")} style={smallBtn("var(--fjord)")}>
-                    Use this
+                <div style={{ display: "flex", gap: 8 }}>
+                  {engine !== "api" && (
+                    <button onClick={() => chooseEngine("api")} style={smallBtn("var(--fjord)")}>
+                      Use this
+                    </button>
+                  )}
+                  <button onClick={() => setSavedKey(null)} style={smallBtn("#A8A395")}>
+                    Change key
                   </button>
-                )}
+                </div>
               </div>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
@@ -2515,32 +2906,14 @@ function AISettingsPanel({ onClose }) {
   );
 }
 
-function ChatView({ categories, addCategory, addCards, showToast }) {
-  const [engine, setEngine] = useState(undefined);
-  const [showSettings, setShowSettings] = useState(false);
+function ChatView({ categories, addCategory, addCards, showToast, engine, onOpenSettings }) {
   const [mode, setMode] = useState("chat");
-
-  const refreshEngine = useCallback(() => {
-    getAIEngine().then((e) => setEngine(e));
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      const e = await getAIEngine();
-      // getAIEngine() already defaults to "api" inside Claude when nothing
-      // has been explicitly chosen — an explicit choice (e.g. switching to
-      // Gemini) still takes priority over that default.
-      setEngine(e);
-      if (!e) setShowSettings(true);
-    })();
-  }, []);
 
   const quickActions = [
     { id: "chat", label: "Chat", icon: Icon.MessageCircle },
     { id: "sentence", label: "Sentence", icon: Icon.Wand2 },
     { id: "article", label: "Translate", icon: Icon.FileText },
     { id: "photo", label: "Photo", icon: Icon.Camera },
-    { id: "categories", label: "Categories", icon: Icon.Sparkles },
   ];
 
   if (engine === undefined) {
@@ -2553,39 +2926,14 @@ function ChatView({ categories, addCategory, addCards, showToast }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <SectionTitle>Ask your tutor</SectionTitle>
-        <button
-          onClick={() => setShowSettings((s) => !s)}
-          style={{ border: "none", background: "none", color: "var(--muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontFamily: "var(--sans)", fontSize: 11.5, padding: 0 }}
-        >
-          <Icon.Key size={12} />
-          AI settings
-        </button>
-      </div>
+      <SectionTitle>Ask your tutor</SectionTitle>
+      <div style={{ height: 12 }} />
 
-      {showSettings && (
-        <AISettingsPanel
-          onClose={(chosenEngine) => {
-            setShowSettings(false);
-            if (chosenEngine) {
-              // Trust what was just chosen in this session rather than
-              // re-reading storage, which can be unreliable in restricted
-              // preview contexts (e.g. iOS Quick Look) even right after a
-              // successful write.
-              setEngine(chosenEngine);
-            } else {
-              refreshEngine();
-            }
-          }}
-        />
-      )}
-
-      {!showSettings && !engine && (
+      {!engine && (
         <EmptyState icon={Icon.MessageCircle} title="Choose an AI option" body="Open AI settings above to use the local model or your own API key." />
       )}
 
-      {!showSettings && engine && (
+      {engine && (
         <>
           <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
             {quickActions.map((a) => (
@@ -2599,12 +2947,11 @@ function ChatView({ categories, addCategory, addCards, showToast }) {
           </div>
 
           {mode === "chat" && (
-            <ChatConversation engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} showToast={showToast} />
+            <ChatConversation engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} showToast={showToast} onOpenSettings={onOpenSettings} />
           )}
-          {mode === "sentence" && <SentencePanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} />}
-          {mode === "article" && <TextExtractPanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} />}
-          {mode === "photo" && <PhotoPanel categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={() => setShowSettings(true)} />}
-          {mode === "categories" && <CategoriesPanel engine={engine} categories={categories} addCategory={addCategory} showToast={showToast} />}
+          {mode === "sentence" && <SentencePanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />}
+          {mode === "article" && <TextExtractPanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />}
+          {mode === "photo" && <PhotoPanel categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />}
         </>
       )}
     </div>
@@ -2617,7 +2964,7 @@ function loadingCopy(engine) {
 
 // ---------- Chat conversation ----------
 
-function ChatConversation({ engine, categories, addCategory, addCards, showToast }) {
+function ChatConversation({ engine, categories, addCategory, addCards, showToast, onOpenSettings }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -2660,7 +3007,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
       );
       persist([...next, { role: "assistant", content: reply }]);
     } catch (e) {
-      persist([...next, { role: "assistant", content: apiErrorMessage(e) }]);
+      persist([...next, { role: "assistant", content: apiErrorMessage(e), isError: true }]);
     } finally {
       setSending(false);
     }
@@ -2685,7 +3032,8 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
           "'sentence' if this was about how to say or understand one specific sentence (front = the Danish sentence, back = the English translation); " +
           "'grammar' if this was about a rule, pattern, or structure that's more useful explained than just translated (front = a short name for the grammar point, back = a concise plain-English explanation, plus up to 3 short example sentences). " +
           "Don't overuse 'grammar' — most simple vocabulary questions should be 'word' or 'sentence'. " +
-          "For 'word' or 'sentence' types, also pick the single best-fitting category (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one.",
+          "For 'word' or 'sentence' types, also pick the single best-fitting category (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. " +
+          "If the front is a Danish noun, include its grammatical article (en/et), and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         "Question: " +
           (userMsg ? userMsg.content : "(none)") +
           "\nAnswer: " +
@@ -2717,6 +3065,27 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 360px)", minHeight: 300 }}>
+      {messages.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button
+            onClick={() => persist([])}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              border: "none",
+              background: "none",
+              color: "var(--muted)",
+              fontFamily: "var(--sans)",
+              fontSize: 12,
+              cursor: "pointer",
+              padding: 4,
+            }}
+          >
+            <Icon.Trash2 size={12} /> Clear chat
+          </button>
+        </div>
+      )}
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", marginBottom: 10 }}>
         {ready && messages.length === 0 && (
           <EmptyState
@@ -2743,7 +3112,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
             >
               {m.content}
             </div>
-            {m.role === "assistant" && (
+            {m.role === "assistant" && !m.isError && (
               <button
                 onClick={() => saveAsCard(i)}
                 disabled={savingIdx === i}
@@ -2764,6 +3133,27 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
               >
                 {savingIdx === i ? <Icon.Loader2 size={11} className="spin" /> : <Icon.Plus size={11} />}
                 Save as flashcard
+              </button>
+            )}
+            {m.isError && onOpenSettings && isSwitchableAIError(m.content) && (
+              <button
+                onClick={onOpenSettings}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: "var(--fjord)",
+                  fontFamily: "var(--sans)",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  marginTop: 3,
+                  cursor: "pointer",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Icon.Key size={11} /> Choose another AI option
               </button>
             )}
           </div>
@@ -2812,7 +3202,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
 
 // ---------- Sentence analysis panel ----------
 
-function SentencePanel({ engine, categories, addCategory, addCards }) {
+function SentencePanel({ engine, categories, addCategory, addCards, onOpenSettings }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -2885,7 +3275,7 @@ function SentencePanel({ engine, categories, addCategory, addCards }) {
         {loading ? loadingCopy(engine) : "Analyze sentence"}
       </button>
 
-      {error && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13, marginTop: 10 }}>{error}</div>}
+      <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
 
       {result && (
         <div style={{ marginTop: 18, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
@@ -2942,7 +3332,7 @@ function SentencePanel({ engine, categories, addCategory, addCards }) {
 
 // ---------- Article vocabulary panel ----------
 
-function TextExtractPanel({ engine, categories, addCategory, addCards }) {
+function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSettings }) {
   const [text, setText] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
@@ -2963,7 +3353,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards }) {
     setLookupResult(null);
     try {
       const reply = await callAI(
-        "You translate single Danish or English words or short phrases for a language learner. Auto-detect which language the input is in and give the natural translation in the other language.",
+        "You translate single Danish or English words or short phrases for a language learner. Auto-detect which language the input is in and give the natural translation in the other language. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         'Translate this: "' + lookupInput.trim() + '". Respond ONLY with JSON, no other text: {"da": "...", "en": "..."}',
         { maxTokens: 300 }
       );
@@ -3048,7 +3438,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards }) {
         </button>
       </div>
 
-      {lookupError && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13, marginTop: 8 }}>{lookupError}</div>}
+      <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
 
       {lookupResult && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }}>
@@ -3112,7 +3502,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards }) {
         {analyzing ? loadingCopy(engine) : "Analyze text"}
       </button>
 
-      {error && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13, marginTop: 10 }}>{error}</div>}
+      <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
 
       {analysis && (
         <div style={{ marginTop: 16, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
@@ -3299,7 +3689,7 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
         </button>
       )}
 
-      {error && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13, marginTop: 10 }}>{error}</div>}
+      <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
 
       {items.length > 0 && (
         <div style={{ marginTop: 16, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
@@ -3340,76 +3730,6 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
 
 // ---------- Category suggestions panel ----------
 
-function CategoriesPanel({ engine, categories, addCategory, showToast }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [suggestions, setSuggestions] = useState([]);
-
-  async function suggest() {
-    setLoading(true);
-    setError("");
-    setSuggestions([]);
-    try {
-      const text = await callAI(
-        "You help an intermediate, self-taught Danish learner organize flashcards. They have foundational gaps typical of self-teaching. Given their current category list, suggest 3 new, specific flashcard categories that would help close common gaps. " +
-          'Respond ONLY with JSON: {"suggestions": ["name1", "name2", "name3"]} — no other text.',
-        "Current categories: " + categories.map((c) => c.name).join(", "),
-        { maxTokens: 400 }
-      );
-      const parsed = parseJSONLoose(text);
-      setSuggestions(parsed.suggestions || []);
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
-        Get category suggestions based on gaps common to self-taught Danish learners and what you already track.
-      </div>
-      <button
-        onClick={suggest}
-        disabled={loading}
-        style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7 }}
-      >
-        {loading ? <Icon.Loader2 size={15} className="spin" /> : <Icon.Sparkles size={15} />}
-        {loading ? loadingCopy(engine) : "Suggest categories"}
-      </button>
-
-      {error && <div style={{ color: "var(--rust)", fontFamily: "var(--sans)", fontSize: 13, marginTop: 10 }}>{error}</div>}
-
-      {suggestions.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                addCategory(s);
-                setSuggestions(suggestions.filter((x) => x !== s));
-                showToast('"' + s + '" added to categories');
-              }}
-              style={{
-                border: "1px dashed var(--fjord)",
-                background: "none",
-                color: "var(--fjord)",
-                borderRadius: 999,
-                padding: "6px 12px",
-                fontSize: 12.5,
-                fontFamily: "var(--sans)",
-                cursor: "pointer",
-              }}
-            >
-              + {s}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 
 
