@@ -166,13 +166,6 @@ const Icon = {
       <path d="M12 3a6 6 0 0 0-4 10.5c.7.8 1 1.4 1 2.5h6c0-1.1.3-1.7 1-2.5A6 6 0 0 0 12 3z" />
     </>
   )),
-  Volume2: makeIcon(() => (
-    <>
-      <polygon points="4,9 8,9 12,5 12,19 8,15 4,15" />
-      <path d="M16 8.5a5 5 0 0 1 0 7" />
-      <path d="M18.5 6a8.5 8.5 0 0 1 0 12" />
-    </>
-  )),
   HelpCircle: makeIcon(() => (
     <>
       <circle cx="12" cy="12" r="9.5" />
@@ -655,28 +648,6 @@ function buildStarterAdditions(existingCategories, existingFrontsSet) {
 // Shared between the Study and Library "explore related words" popups.
 const WORD_INSIGHT_SYSTEM_PROMPT =
   "A Danish learner tapped a word or short phrase on their flashcard because they want to understand it more deeply. Explain it clearly and completely in plain English, in about 4-6 short flowing sentences (no headers, no bullet points): start with what kind of word it is and what it means; then include whichever of these genuinely applies — for a noun, its indefinite/definite singular and plural forms (e.g. en hund, hunden, hunde, hundene), noting plainly if it has no natural plural; for a verb, its principal forms (infinitive, present, past, past participle); for a preposition, adverb, or other small function word, 2-3 other common Danish words that share its root or pattern, and what that shared pattern actually means for the learner. Always finish your last sentence completely — never trail off or stop mid-thought.";
-
-// Speaks Danish text aloud using the browser's built-in text-to-speech —
-// no API call, no cost, works offline. Picks a Danish voice if the
-// browser has one installed; falls back to the browser's default voice
-// with the language tag set, which most browsers still pronounce
-// reasonably from.
-function speakDanish(text) {
-  if (!text || !("speechSynthesis" in window)) return;
-  try {
-    window.speechSynthesis.cancel(); // don't stack up overlapping speech
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "da-DK";
-    const voices = window.speechSynthesis.getVoices();
-    const daVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("da"));
-    if (daVoice) utter.voice = daVoice;
-    utter.rate = 0.92;
-    window.speechSynthesis.speak(utter);
-  } catch (e) {
-    // Silently do nothing — pronunciation is a nice-to-have, not
-    // something that should ever interrupt study with an error.
-  }
-}
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -1337,7 +1308,7 @@ function DanishFlashcards() {
     <Shell>
       <Header cardCount={cards.length} onOpenSettings={() => setShowSettings(true)} />
       <div style={{ padding: "0 16px calc(96px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "study" && <StudyView cards={cards} categories={categories} updateCard={updateCard} onOpenSettings={() => setShowSettings(true)} />}
+        {tab === "study" && <StudyView cards={cards} categories={categories} updateCard={updateCard} onOpenSettings={() => setShowSettings(true)} showToast={showToast} engine={engine} />}
         {tab === "library" && (
           <LibraryView
             cards={cards}
@@ -1537,7 +1508,7 @@ function Toast({ msg }) {
 
 // ---------- Study ----------
 
-function StudyView({ cards, categories, updateCard, onOpenSettings }) {
+function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, engine }) {
   const [catFilter, setCatFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
   const [includeKnown, setIncludeKnown] = useState(false);
@@ -1923,21 +1894,8 @@ function StudyView({ cards, categories, updateCard, onOpenSettings }) {
                   }}
                 >
                   {langDir === "da-first" ? (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                      <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
-                        {current.front}
-                      </div>
-                      <button
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          speakDanish(current.front);
-                        }}
-                        aria-label="Pronounce"
-                        style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
-                      >
-                        <Icon.Volume2 size={18} />
-                      </button>
+                    <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
+                      {current.front}
                     </div>
                   ) : (
                     <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: current.type === "word" ? 26 : 18, lineHeight: 1.4, color: "var(--sage)" }}>
@@ -1967,21 +1925,8 @@ function StudyView({ cards, categories, updateCard, onOpenSettings }) {
                       {current.back}
                     </div>
                   ) : (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                      <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
-                        {current.front}
-                      </div>
-                      <button
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          speakDanish(current.front);
-                        }}
-                        aria-label="Pronounce"
-                        style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
-                      >
-                        <Icon.Volume2 size={18} />
-                      </button>
+                    <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
+                      {current.front}
                     </div>
                   )}
                   {current.notes && (
