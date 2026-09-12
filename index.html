@@ -2157,10 +2157,26 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
+  const [showFilters, setShowFilters] = useState(false);
   const [insightFor, setInsightFor] = useState(null);
   const [insightCache, setInsightCache] = useState({});
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
+
+  const activeFilterCount =
+    (catFilter !== "all" ? 1 : 0) +
+    (typeFilter !== "all" ? 1 : 0) +
+    (starredOnly ? 1 : 0) +
+    (knownFilter !== "all" ? 1 : 0) +
+    (originFilter !== "all" ? 1 : 0);
+
+  function clearFilters() {
+    setCatFilter("all");
+    setTypeFilter("all");
+    setStarredOnly(false);
+    setKnownFilter("all");
+    setOriginFilter("all");
+  }
 
   const filtered = cards.filter((c) => {
     if (catFilter !== "all" && c.category !== catFilter) return false;
@@ -2250,64 +2266,65 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
         />
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-        {["all", "word", "sentence", "grammar"].map((t) => (
-          <Pill key={t} color="var(--rust)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
-            {t === "all" ? "All types" : TYPE_LABEL[t]}
-          </Pill>
-        ))}
-        <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
-          ★ Starred
-        </Pill>
-        <Pill
-          color="#4C8A5E"
-          active={knownFilter === "known"}
-          onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <button
+          onClick={() => setShowFilters(true)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            border: "1px solid " + (activeFilterCount > 0 ? "var(--fjord)" : "var(--line)"),
+            background: activeFilterCount > 0 ? "#EEF2F0" : "var(--card)",
+            borderRadius: 999,
+            padding: "7px 14px",
+            fontFamily: "var(--sans)",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--ink)",
+            cursor: "pointer",
+          }}
         >
-          ✓ Known ({knownCount})
-        </Pill>
-      </div>
-
-      <div style={{ marginBottom: 8 }}>
-        <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)" }}>Show:</span>
-          {[
-            { id: "all", label: "All cards" },
-            { id: "mine", label: "My cards" },
-            { id: "starter", label: "Starter vocabulary" },
-          ].map((o) => (
-            <Pill key={o.id} color="var(--fjord)" active={originFilter === o.id} onClick={() => setOriginFilter(o.id)}>
-              {o.label}
-            </Pill>
-          ))}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)" }}>Sort:</span>
-          <button
-            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              border: "1px solid var(--line)",
-              background: "var(--card)",
-              borderRadius: 999,
-              padding: "5px 12px",
-              fontFamily: "var(--sans)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: "var(--ink)",
-              cursor: "pointer",
-            }}
-          >
-            {sortDir === "asc" ? "A–Z" : "Z–A"}
-            {sortDir === "asc" ? <Icon.ArrowDown size={12} /> : <Icon.ArrowUp size={12} />}
-          </button>
-        </div>
+          <Icon.Layers size={13} />
+          Filters
+          {activeFilterCount > 0 && (
+            <span
+              style={{
+                background: "var(--fjord)",
+                color: "#FBFAF7",
+                borderRadius: 999,
+                minWidth: 18,
+                height: 18,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                padding: "0 5px",
+              }}
+            >
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            border: "1px solid var(--line)",
+            background: "var(--card)",
+            borderRadius: 999,
+            padding: "7px 14px",
+            fontFamily: "var(--sans)",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--ink)",
+            cursor: "pointer",
+          }}
+        >
+          {sortDir === "asc" ? "A–Z" : "Z–A"}
+          {sortDir === "asc" ? <Icon.ArrowDown size={12} /> : <Icon.ArrowUp size={12} />}
+        </button>
       </div>
 
       <div>
@@ -2358,6 +2375,73 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
           ))
         )}
       </div>
+
+      {showFilters && (
+        <div
+          onClick={() => setShowFilters(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 55 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "82vh", overflowY: "auto" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontFamily: "var(--serif)", fontSize: 18 }}>Filters</div>
+              <button onClick={() => setShowFilters(false)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                <Icon.X size={18} />
+              </button>
+            </div>
+
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Type</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              {["all", "word", "sentence", "grammar"].map((t) => (
+                <Pill key={t} color="var(--rust)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
+                  {t === "all" ? "All types" : TYPE_LABEL[t]}
+                </Pill>
+              ))}
+            </div>
+
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Progress</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
+                ★ Starred
+              </Pill>
+              <Pill color="#4C8A5E" active={knownFilter === "known"} onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}>
+                ✓ Known ({knownCount})
+              </Pill>
+            </div>
+
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
+            <div style={{ marginBottom: 16 }}>
+              <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
+            </div>
+
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Show</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+              {[
+                { id: "all", label: "All cards" },
+                { id: "mine", label: "My cards" },
+                { id: "starter", label: "Starter vocabulary" },
+              ].map((o) => (
+                <Pill key={o.id} color="var(--fjord)" active={originFilter === o.id} onClick={() => setOriginFilter(o.id)}>
+                  {o.label}
+                </Pill>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              {activeFilterCount > 0 && (
+                <button onClick={clearFilters} style={smallBtn("#A8A395")}>
+                  Clear filters
+                </button>
+              )}
+              <button onClick={() => setShowFilters(false)} style={{ ...smallBtn("var(--rust)"), flex: 1 }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {insightFor && (
         <div
