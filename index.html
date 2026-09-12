@@ -3590,16 +3590,15 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
   const [itemCategory, setItemCategory] = useState({}); // da word -> category id, individually suggested per word
   const [error, setError] = useState("");
 
-  const [lookupInput, setLookupInput] = useState("");
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState("");
   const [lookupCategory, setLookupCategory] = useState(categories[0]?.id || "");
 
-  // Word-insight popup for the quick lookup — same deep-dive (forms,
-  // related words) as the lightbulb on a study card, since typing a
-  // single word here is exactly that same use case.
-  const [insightFor, setInsightFor] = useState(null); // the looked-up word this insight is for
+  // Word-insight popup — same deep-dive (forms, related words) as the
+  // lightbulb on a study card. Only makes sense once the translated
+  // result looks like a single word or short phrase, not a passage.
+  const [insightFor, setInsightFor] = useState(null);
   const [insightText, setInsightText] = useState("");
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
@@ -3623,16 +3622,16 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     }
   }
 
-  async function lookup() {
-    if (!lookupInput.trim()) return;
+  async function translate() {
+    if (!text.trim()) return;
     setLookupLoading(true);
     setLookupError("");
     setLookupResult(null);
     try {
       const reply = await callAI(
-        "You translate single Danish or English words or short phrases for a language learner. Auto-detect which language the input is in and give the natural translation in the other language. The translation must be ONLY in the target language — never repeat or include the original word/phrase alongside it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
-        'Translate this: "' + lookupInput.trim() + '". Respond ONLY with JSON, no other text: {"da": "...", "en": "..."}',
-        { maxTokens: 300 }
+        "You translate Danish or English text for a language learner — anything from a single word to a longer passage. Auto-detect which language the input is in and give a natural, fluent translation in the other language. The translation must be ONLY in the target language — never repeat or include the original alongside it. If it's a single Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
+        'Translate this: "' + text.trim() + '". Respond ONLY with JSON, no other text: {"da": "...", "en": "..."}',
+        { maxTokens: 1500 }
       );
       const parsed = parseJSONLoose(reply);
       setLookupResult({ da: cleanTranslation(parsed.da), en: cleanTranslation(parsed.en) });
@@ -3652,7 +3651,6 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     if (lookupCategory.startsWith("__new__")) catId = addCategory(lookupCategory.replace("__new__", "") || "Quick lookups");
     const type = (lookupResult.da || "").trim().split(/\s+/).length > 3 ? "sentence" : "word";
     addCards([{ type, front: lookupResult.da, back: lookupResult.en, category: catId }]);
-    setLookupInput("");
     setLookupResult(null);
   }
 
@@ -3710,26 +3708,26 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       .map((v) => ({ type: "word", front: v.da, back: v.en, category: itemCategory[v.da] || categories[0]?.id }));
     if (toAdd.length === 0) return;
     addCards(toAdd);
-    setText("");
     setAnalysis(null);
     setSelected({});
     setItemCategory({});
   }
 
   function clearAll() {
-    setLookupInput("");
+    setText("");
     setLookupResult(null);
     setLookupError("");
-    setText("");
     setAnalysis(null);
     setSelected({});
     setItemCategory({});
     setError("");
   }
 
+  const lookupIsWordLike = lookupResult && lookupResult.da && lookupResult.da.trim().split(/\s+/).length <= 4;
+
   return (
     <div>
-      {(lookupInput || lookupResult || text || analysis) && (
+      {(text || lookupResult || analysis) && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
           <button
             onClick={clearAll}
@@ -3740,99 +3738,108 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
         </div>
       )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
-        Type a Danish or English word or short phrase to translate it instantly.
+        Type or paste anything — a word, a phrase, or a longer passage — then translate it, or pull out the key
+        vocabulary worth learning from it.
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          value={lookupInput}
-          onChange={(e) => setLookupInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") lookup();
-          }}
-          placeholder='e.g. "hyggelig" or "cozy"'
-          style={{ ...inputStyle, flex: 1 }}
-        />
-        <button onClick={lookup} disabled={lookupLoading || !lookupInput.trim()} style={smallBtn("var(--fjord)")}>
-          {lookupLoading ? <Icon.Loader2 size={14} className="spin" /> : "Translate"}
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder='e.g. "hyggelig", or paste a longer passage…'
+        style={{ ...inputStyle, minHeight: 100 }}
+      />
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button
+          onClick={translate}
+          disabled={!text.trim() || lookupLoading}
+          style={{ ...smallBtn("var(--fjord)"), flex: 1, padding: "11px", fontSize: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, opacity: text.trim() ? 1 : 0.5 }}
+        >
+          {lookupLoading ? <Icon.Loader2 size={14} className="spin" /> : null}
+          {lookupLoading ? loadingCopy(engine) : "Translate"}
+        </button>
+        <button
+          onClick={analyzeText}
+          disabled={!text.trim() || analyzing}
+          style={{ ...smallBtn("var(--rust)"), flex: 1, padding: "11px", fontSize: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, opacity: text.trim() ? 1 : 0.5 }}
+        >
+          {analyzing ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Wand2 size={14} />}
+          {analyzing ? loadingCopy(engine) : "Extract vocabulary"}
         </button>
       </div>
 
       <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
 
       {lookupResult && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }}>
-          <div style={{ flex: 1, fontFamily: "var(--sans)", fontSize: 14, minWidth: 0 }}>
-            <span style={{ color: "var(--terracotta)" }}>{lookupResult.da}</span> — <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</span>
+        <div style={{ marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
+          <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.5, marginBottom: 10 }}>
+            {lookupIsWordLike && (
+              <>
+                <span style={{ color: "var(--terracotta)" }}>{lookupResult.da}</span>
+                <br />
+              </>
+            )}
+            <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</span>
           </div>
-          <button
-            onClick={() => openInsight(lookupResult.da, lookupResult.en)}
-            aria-label="Explore related words"
-            style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
-          >
-            <Icon.Lightbulb size={17} />
-          </button>
-          <select
-            value={lookupCategory.startsWith("__new__") ? "" : lookupCategory}
-            onChange={(e) => {
-              if (e.target.value === "__new__cat") {
-                const name = window.prompt ? window.prompt("New category name") : "";
-                if (name && name.trim()) setLookupCategory("__new__" + name.trim());
-                return;
-              }
-              setLookupCategory(e.target.value);
-            }}
-            style={{ ...inputStyle, width: "auto", padding: "6px 8px", fontSize: 12.5 }}
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-            <option value="__new__cat">+ New category…</option>
-          </select>
-          <button
-            onClick={addLookup}
-            aria-label="Add word"
-            style={{
-              border: "none",
-              background: "var(--rust)",
-              color: "#FBFAF7",
-              borderRadius: 999,
-              width: 30,
-              height: 30,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            <Icon.Plus size={16} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            {lookupIsWordLike ? (
+              <button
+                onClick={() => openInsight(lookupResult.da, lookupResult.en)}
+                aria-label="Explore related words"
+                style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+              >
+                <Icon.Lightbulb size={18} />
+              </button>
+            ) : (
+              <span />
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <select
+                value={lookupCategory.startsWith("__new__") ? "" : lookupCategory}
+                onChange={(e) => {
+                  if (e.target.value === "__new__cat") {
+                    const name = window.prompt ? window.prompt("New category name") : "";
+                    if (name && name.trim()) setLookupCategory("__new__" + name.trim());
+                    return;
+                  }
+                  setLookupCategory(e.target.value);
+                }}
+                style={{ ...inputStyle, width: "auto", padding: "6px 8px", fontSize: 12.5 }}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+                <option value="__new__cat">+ New category…</option>
+              </select>
+              <button
+                onClick={addLookup}
+                aria-label="Add word"
+                style={{
+                  border: "none",
+                  background: "var(--rust)",
+                  color: "#FBFAF7",
+                  borderRadius: 999,
+                  width: 30,
+                  height: 30,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <Icon.Plus size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      <div style={{ borderTop: "1px solid var(--line)", margin: "20px 0 16px" }} />
-
-      <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
-        Or paste a longer article or passage — I'll pull out the key vocabulary worth learning from it, with
-        translations you can confirm.
-      </div>
-      <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste Danish text here…" style={{ ...inputStyle, minHeight: 120 }} />
-      <button
-        onClick={analyzeText}
-        disabled={!text.trim() || analyzing}
-        style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, opacity: text.trim() ? 1 : 0.5 }}
-      >
-        {analyzing ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Wand2 size={14} />}
-        {analyzing ? loadingCopy(engine) : "Extract vocabulary"}
-      </button>
 
       <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
 
       {analysis && (
         <div style={{ marginTop: 16, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
-          {analysis.fullTranslation && (
+          {analysis.fullTranslation && !lookupResult && (
             <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}>
               <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>Translation</div>
               <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, fontStyle: "italic", color: "var(--sage)" }}>{analysis.fullTranslation}</div>
