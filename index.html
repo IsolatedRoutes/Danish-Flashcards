@@ -679,6 +679,16 @@ function parseJSONLoose(text) {
   return JSON.parse(body);
 }
 
+// Defensive cleanup for translation results: even with explicit prompt
+// instructions not to, models occasionally echo both languages (e.g.
+// "en hest / a horse" when only "a horse" was asked for). If that exact
+// pattern shows up, keep just the actual answer after the last slash.
+function cleanTranslation(text) {
+  if (!text) return text;
+  const parts = text.split(/\s*\/\s*/);
+  return parts.length > 1 ? parts[parts.length - 1].trim() : text.trim();
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -2268,7 +2278,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <button
-          onClick={() => setShowFilters(true)}
+          onClick={() => setShowFilters((s) => !s)}
           style={{
             display: "flex",
             alignItems: "center",
@@ -2304,6 +2314,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
               {activeFilterCount}
             </span>
           )}
+          {showFilters ? <Icon.ChevronUp size={13} /> : <Icon.ChevronDown size={13} />}
         </button>
         <button
           onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
@@ -2326,6 +2337,53 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
           {sortDir === "asc" ? <Icon.ArrowDown size={12} /> : <Icon.ArrowUp size={12} />}
         </button>
       </div>
+
+      {showFilters && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 16, marginBottom: 14 }}>
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Type</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+            {["all", "word", "sentence", "grammar"].map((t) => (
+              <Pill key={t} color="var(--rust)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
+                {t === "all" ? "All types" : TYPE_LABEL[t]}
+              </Pill>
+            ))}
+          </div>
+
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Progress</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+            <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
+              ★ Starred
+            </Pill>
+            <Pill color="#4C8A5E" active={knownFilter === "known"} onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}>
+              ✓ Known ({knownCount})
+            </Pill>
+          </div>
+
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
+          <div style={{ marginBottom: 16 }}>
+            <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
+          </div>
+
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Show</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: activeFilterCount > 0 ? 16 : 0, flexWrap: "wrap" }}>
+            {[
+              { id: "all", label: "All cards" },
+              { id: "mine", label: "My cards" },
+              { id: "starter", label: "Starter vocabulary" },
+            ].map((o) => (
+              <Pill key={o.id} color="var(--fjord)" active={originFilter === o.id} onClick={() => setOriginFilter(o.id)}>
+                {o.label}
+              </Pill>
+            ))}
+          </div>
+
+          {activeFilterCount > 0 && (
+            <button onClick={clearFilters} style={smallBtn("#A8A395")}>
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
 
       <div>
         {groups.length === 0 ? (
@@ -2376,72 +2434,6 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
         )}
       </div>
 
-      {showFilters && (
-        <div
-          onClick={() => setShowFilters(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 55 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "82vh", overflowY: "auto" }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontFamily: "var(--serif)", fontSize: 18 }}>Filters</div>
-              <button onClick={() => setShowFilters(false)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                <Icon.X size={18} />
-              </button>
-            </div>
-
-            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Type</div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-              {["all", "word", "sentence", "grammar"].map((t) => (
-                <Pill key={t} color="var(--rust)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
-                  {t === "all" ? "All types" : TYPE_LABEL[t]}
-                </Pill>
-              ))}
-            </div>
-
-            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Progress</div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-              <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
-                ★ Starred
-              </Pill>
-              <Pill color="#4C8A5E" active={knownFilter === "known"} onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}>
-                ✓ Known ({knownCount})
-              </Pill>
-            </div>
-
-            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
-            <div style={{ marginBottom: 16 }}>
-              <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
-            </div>
-
-            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Show</div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
-              {[
-                { id: "all", label: "All cards" },
-                { id: "mine", label: "My cards" },
-                { id: "starter", label: "Starter vocabulary" },
-              ].map((o) => (
-                <Pill key={o.id} color="var(--fjord)" active={originFilter === o.id} onClick={() => setOriginFilter(o.id)}>
-                  {o.label}
-                </Pill>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              {activeFilterCount > 0 && (
-                <button onClick={clearFilters} style={smallBtn("#A8A395")}>
-                  Clear filters
-                </button>
-              )}
-              <button onClick={() => setShowFilters(false)} style={{ ...smallBtn("var(--rust)"), flex: 1 }}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {insightFor && (
         <div
@@ -2609,7 +2601,7 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help fill in a Danish learner's flashcard. Given a single word or short phrase, give its natural translation and the single best-fitting category for it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
+        "You help fill in a Danish learner's flashcard. Given a single word or short phrase, give its natural translation and the single best-fitting category for it. The translation must be ONLY in the target language — never repeat or include the original word/phrase alongside it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         (direction === "da" ? "Danish" : "English") +
           ' text: "' +
           trimmed +
@@ -2621,8 +2613,9 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
       );
       const parsed = parseJSONLoose(reply);
       if (parsed.translation) {
-        if (direction === "da") setBack((prev) => (prev.trim() ? prev : parsed.translation));
-        else setFront((prev) => (prev.trim() ? prev : parsed.translation));
+        const clean = cleanTranslation(parsed.translation);
+        if (direction === "da") setBack((prev) => (prev.trim() ? prev : clean));
+        else setFront((prev) => (prev.trim() ? prev : clean));
       }
       if (parsed.category && !categoryTouched.current) {
         const existing = categories.find((c) => c.name.toLowerCase() === parsed.category.toLowerCase());
@@ -3581,12 +3574,12 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setLookupResult(null);
     try {
       const reply = await callAI(
-        "You translate single Danish or English words or short phrases for a language learner. Auto-detect which language the input is in and give the natural translation in the other language. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
+        "You translate single Danish or English words or short phrases for a language learner. Auto-detect which language the input is in and give the natural translation in the other language. The translation must be ONLY in the target language — never repeat or include the original word/phrase alongside it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         'Translate this: "' + lookupInput.trim() + '". Respond ONLY with JSON, no other text: {"da": "...", "en": "..."}',
         { maxTokens: 300 }
       );
       const parsed = parseJSONLoose(reply);
-      setLookupResult(parsed);
+      setLookupResult({ da: cleanTranslation(parsed.da), en: cleanTranslation(parsed.en) });
     } catch (e) {
       setLookupError(apiErrorMessage(e));
     } finally {
