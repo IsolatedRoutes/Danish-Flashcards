@@ -1420,10 +1420,12 @@ function DanishFlashcards() {
       {toast && <Toast msg={toast} />}
       {showSettings && (
         <div
+          className="sheet-backdrop"
           onClick={() => setShowSettings(false)}
           style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 60 }}
         >
           <div
+            className="sheet-content"
             onClick={(e) => e.stopPropagation()}
             style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "82vh", overflowY: "auto" }}
           >
@@ -1480,6 +1482,10 @@ function Shell({ children }) {
         @keyframes cardEnterBack { from { opacity: 0.25; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
         .card-enter-next { animation: cardEnterNext 0.4s ease-out; }
         .card-enter-back { animation: cardEnterBack 0.4s ease-out; }
+        @keyframes sheetBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes sheetSlideIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .sheet-backdrop { animation: sheetBackdropIn 0.22s ease-out; }
+        .sheet-content { animation: sheetSlideIn 0.32s cubic-bezier(0.32, 0.72, 0, 1); }
         * { box-sizing: border-box; }
         html, body { overscroll-behavior-x: none; }
         input, textarea, select { font-family: var(--sans); }
@@ -2072,6 +2078,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
 
       {insightFor && (
         <div
+          className="sheet-backdrop"
           onClick={() => setInsightFor(null)}
           style={{
             position: "fixed",
@@ -2083,6 +2090,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
           }}
         >
           <div
+            className="sheet-content"
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "var(--card)",
@@ -2119,10 +2127,12 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
 
       {askFor && (
         <div
+          className="sheet-backdrop"
           onClick={() => setAskFor(null)}
           style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
         >
           <div
+            className="sheet-content"
             onClick={(e) => e.stopPropagation()}
             style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
           >
@@ -2437,10 +2447,12 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
 
       {insightFor && (
         <div
+          className="sheet-backdrop"
           onClick={() => setInsightFor(null)}
           style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
         >
           <div
+            className="sheet-content"
             onClick={(e) => e.stopPropagation()}
             style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
           >
@@ -3652,13 +3664,13 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
+        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, give a natural, fluent English translation of the full passage. Then briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
         "Text:\n" +
           text.slice(0, 3000) +
           "\n\nExisting categories to prefer if one fits: " +
           (categoryNames || "(none yet)") +
-          '\n\nRespond ONLY with JSON, no other text: {"grammarNotes": "...", "vocabulary": [{"da": "...", "en": "...", "category": "..."}]}',
-        { maxTokens: 1500 }
+          '\n\nRespond ONLY with JSON, no other text: {"fullTranslation": "...", "grammarNotes": "...", "vocabulary": [{"da": "...", "en": "...", "category": "..."}]}',
+        { maxTokens: 2500 }
       );
       const parsed = parseJSONLoose(reply);
       const vocab = parsed.vocabulary || [];
@@ -3820,6 +3832,12 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
 
       {analysis && (
         <div style={{ marginTop: 16, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
+          {analysis.fullTranslation && (
+            <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>Translation</div>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, fontStyle: "italic", color: "var(--sage)" }}>{analysis.fullTranslation}</div>
+            </div>
+          )}
           <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 14 }}>{analysis.grammarNotes}</div>
 
           <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
@@ -3858,10 +3876,12 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
 
       {insightFor && (
         <div
+          className="sheet-backdrop"
           onClick={() => setInsightFor(null)}
           style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
         >
           <div
+            className="sheet-content"
             onClick={(e) => e.stopPropagation()}
             style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
           >
