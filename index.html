@@ -2949,12 +2949,21 @@ function ChatView({ categories, addCategory, addCards, showToast, engine, onOpen
             ))}
           </div>
 
-          {mode === "chat" && (
+          {/* Every panel stays mounted so switching between them doesn't
+              wipe out what you were in the middle of typing — only the
+              active one is visible, the rest are just hidden. */}
+          <div style={{ display: mode === "chat" ? "block" : "none" }}>
             <ChatConversation engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} showToast={showToast} onOpenSettings={onOpenSettings} />
-          )}
-          {mode === "sentence" && <SentencePanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />}
-          {mode === "article" && <TextExtractPanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />}
-          {mode === "photo" && <PhotoPanel categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />}
+          </div>
+          <div style={{ display: mode === "sentence" ? "block" : "none" }}>
+            <SentencePanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />
+          </div>
+          <div style={{ display: mode === "article" ? "block" : "none" }}>
+            <TextExtractPanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />
+          </div>
+          <div style={{ display: mode === "photo" ? "block" : "none" }}>
+            <PhotoPanel categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />
+          </div>
         </>
       )}
     </div>
@@ -3263,8 +3272,25 @@ function SentencePanel({ engine, categories, addCategory, addCards, onOpenSettin
     setInput("");
   }
 
+  function clearAll() {
+    setInput("");
+    setResult(null);
+    setSelected({});
+    setError("");
+  }
+
   return (
     <div>
+      {(input || result) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button
+            onClick={clearAll}
+            style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "var(--muted)", fontFamily: "var(--sans)", fontSize: 12, cursor: "pointer", padding: 4 }}
+          >
+            <Icon.Trash2 size={12} /> Clear
+          </button>
+        </div>
+      )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
         Type a sentence you're trying to say or understand — in English or Danish — and get the grammar rule behind it plus more examples.
       </div>
@@ -3442,8 +3468,29 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setItemCategory({});
   }
 
+  function clearAll() {
+    setLookupInput("");
+    setLookupResult(null);
+    setLookupError("");
+    setText("");
+    setAnalysis(null);
+    setSelected({});
+    setItemCategory({});
+    setError("");
+  }
+
   return (
     <div>
+      {(lookupInput || lookupResult || text || analysis) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button
+            onClick={clearAll}
+            style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "var(--muted)", fontFamily: "var(--sans)", fontSize: 12, cursor: "pointer", padding: 4 }}
+          >
+            <Icon.Trash2 size={12} /> Clear
+          </button>
+        </div>
+      )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
         Type a Danish or English word or short phrase to translate it instantly.
       </div>
@@ -3605,6 +3652,16 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     setError("");
   }
 
+  function clearAll() {
+    setFile(null);
+    setPreview(null);
+    setItems([]);
+    setGrammarNotes("");
+    setSelected({});
+    setItemCategory({});
+    setError("");
+  }
+
   async function extract() {
     if (!file) return;
     setLoading(true);
@@ -3689,6 +3746,16 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
 
   return (
     <div>
+      {(file || items.length > 0) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button
+            onClick={clearAll}
+            style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "var(--muted)", fontFamily: "var(--sans)", fontSize: 12, cursor: "pointer", padding: 4 }}
+          >
+            <Icon.Trash2 size={12} /> Clear
+          </button>
+        </div>
+      )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
         Upload a screenshot of Danish text — a book, an app, a sign — and pull out words or sentences to add to your deck.
       </div>
