@@ -637,6 +637,21 @@ const STARTER_WORDS = {
 
 // Shared by the auto-seed on first launch and the manual "Add starter
 // vocabulary" button in Library — builds only what's not already present.
+// Deterministic across every device, forever, as long as the Danish text
+// doesn't change — this is what makes "starred this starter word" mergeable
+// between devices instead of colliding on random per-device IDs.
+function slugify(text) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9æøå]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function stableStarterId(front) {
+  return "starter:" + slugify(front);
+}
+
 function buildStarterAdditions(existingCategories, existingFrontsSet) {
   const existingCatNames = new Set(existingCategories.map((c) => c.name.toLowerCase()));
   const newCategories = Object.keys(STARTER_WORDS)
@@ -655,7 +670,7 @@ function buildStarterAdditions(existingCategories, existingFrontsSet) {
       const key = da.trim().toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
-      newCards.push({ type: "word", front: da, back: en, category: nameToId[catName.toLowerCase()], starter: true });
+      newCards.push({ id: stableStarterId(da), type: "word", front: da, back: en, category: nameToId[catName.toLowerCase()], starter: true });
     });
   });
   return { newCategories, newCards, combinedCategories };
@@ -1222,13 +1237,38 @@ function DanishFlashcards() {
         }
       }
 
+      // One-time migration: starter cards seeded before stable IDs existed
+      // have random per-device IDs — realign them to the deterministic
+      // scheme so this device's data can eventually merge cleanly with
+      // any other device's, instead of the same word colliding under two
+      // different IDs forever.
+      let idsMigrated = false;
+      const claimedStableIds = new Set();
+      c = c.map((card) => {
+        if (card.starter) {
+          const stableId = stableStarterId(card.front);
+          // Guard against a rare pre-existing accidental duplicate (two
+          // starter cards with the same front, from before duplicate
+          // detection existed) — only the first claims the stable id,
+          // so we never produce two cards sharing one id.
+          if (!claimedStableIds.has(stableId)) {
+            claimedStableIds.add(stableId);
+            if (card.id !== stableId) {
+              idsMigrated = true;
+              return { ...card, id: stableId };
+            }
+          }
+        }
+        return card;
+      });
+
       // Starter vocabulary should always just be complete — no manual
       // button, no visible prompt. This quietly tops up anything missing,
       // whether that's a first-ever launch with nothing yet, or an
       // existing deck from before a later vocabulary expansion.
       const existingFronts = new Set(c.map((card) => card.front.trim().toLowerCase()));
       const { newCards, combinedCategories } = buildStarterAdditions(cat, existingFronts);
-      if (newCards.length > 0) {
+      if (newCards.length > 0 || idsMigrated) {
         cat = combinedCategories;
         c = [
           ...c,
@@ -2212,14 +2252,33 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
     setOriginFilter("all");
   }
 
-  function exportDeck() {
+  async function exportDeck() {
     const payload = { exportedAt: new Date().toISOString(), cards, categories };
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = "dansk-backup-" + date + ".json";
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+
+    // Share the file directly when possible, so the person gets a real
+    // "choose where to save it" prompt (Files, AirDrop, Messages, etc.)
+    // instead of it silently landing wherever the browser's default
+    // downloads location happens to be.
+    if (navigator.share && navigator.canShare) {
+      try {
+        const file = new File([blob], filename, { type: "application/json" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "Dansk backup" });
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // they cancelled the share sheet — not a failure
+        // otherwise fall through to the plain download below
+      }
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const date = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = "dansk-backup-" + date + ".json";
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
