@@ -686,61 +686,6 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// Shared by every floating popover in the app (word-insight, ask-a-word,
-// AI settings, backup). Uses position: fixed with pixel coordinates
-// computed directly from the trigger's real on-screen position, rather
-// than a CSS percentage anchored to some ancestor — that's deliberate:
-// fixed positioning escapes any ancestor's own scrolling/clipping
-// behavior, which is the likely cause of a popover still being cut off
-// inside an embedded preview (like Claude's own in-app artifact view)
-// even after its height was correctly capped. Recomputes on open, and on
-// any resize or scroll so it stays anchored to the trigger.
-function usePopoverPlacement(isOpen, anchorRef) {
-  const [style, setStyle] = useState(null);
-  useEffect(() => {
-    if (!isOpen || !anchorRef.current) {
-      setStyle(null);
-      return;
-    }
-    const measure = () => {
-      if (!anchorRef.current) return;
-      const rect = anchorRef.current.getBoundingClientRect();
-      const vv = window.visualViewport;
-      const viewportWidth = vv ? vv.width : window.innerWidth;
-      const viewportHeight = vv ? vv.height : window.innerHeight;
-      const margin = 10;
-      const spaceBelow = viewportHeight - rect.bottom - margin;
-      const spaceAbove = rect.top - margin;
-      const openBelow = spaceBelow >= 180 || spaceBelow >= spaceAbove;
-      const maxHeight = Math.max(120, openBelow ? spaceBelow : spaceAbove);
-      setStyle({
-        position: "fixed",
-        left: Math.max(margin, rect.left),
-        right: Math.max(margin, viewportWidth - rect.right),
-        [openBelow ? "top" : "bottom"]: openBelow ? rect.bottom + 6 : viewportHeight - rect.top + 6,
-        maxHeight,
-      });
-    };
-    measure();
-    const vv = window.visualViewport;
-    window.addEventListener("resize", measure);
-    window.addEventListener("scroll", measure, true);
-    if (vv) {
-      vv.addEventListener("resize", measure);
-      vv.addEventListener("scroll", measure);
-    }
-    return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", measure, true);
-      if (vv) {
-        vv.removeEventListener("resize", measure);
-        vv.removeEventListener("scroll", measure);
-      }
-    };
-  }, [isOpen, anchorRef]);
-  return style;
-}
-
 
 function parseJSONLoose(text) {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -1126,6 +1071,50 @@ function smallBtn(bg) {
 
 const rowCheck = { display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8, cursor: "pointer" };
 
+// Every popup in the app (word-insight, ask-a-word, AI settings, backup)
+// uses this: a simple centered overlay, sized to the viewport with its
+// own internal scroll. Deliberately NOT anchored to wherever it was
+// triggered from — anchored positioning kept getting cut off in some
+// real environments (especially with the keyboard open, where the
+// trigger's on-screen position keeps shifting under it) despite several
+// attempts to compute it dynamically. A fixed, centered box can't be
+// clipped by anything and doesn't need to track a moving target.
+function CenteredOverlay({ onClose, children, maxWidth = 420 }) {
+  return (
+    <div
+      className="popover-backdrop"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(35,39,42,0.35)",
+        zIndex: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        className="popover"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth,
+          maxHeight: "85vh",
+          overflowY: "auto",
+          background: "var(--card)",
+          border: "1px solid var(--line)",
+          borderRadius: 16,
+          padding: 20,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function Pill({ children, color, active, onClick }) {
   return (
     <button
@@ -1249,8 +1238,6 @@ function DanishFlashcards() {
   const [engine, setEngine] = useState(undefined);
   const [showSettings, setShowSettings] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
-  const headerRef = useRef(null);
-  const headerPopoverPlacement = usePopoverPlacement(showSettings || showBackup, headerRef);
 
   const refreshEngine = useCallback(() => {
     getAIEngine().then((e) => setEngine(e));
@@ -1501,63 +1488,35 @@ function DanishFlashcards() {
 
   return (
     <Shell>
-      <div ref={headerRef} style={{ position: "relative" }}>
+      <div>
         <Header
           onOpenSettings={() => setShowSettings((s) => !s)}
           onOpenBackup={() => setShowBackup((s) => !s)}
           settingsOpen={showSettings}
           backupOpen={showBackup}
         />
-        {showSettings && headerPopoverPlacement && (
-          <>
-            <div className="popover-backdrop" onClick={() => setShowSettings(false)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 39 }} />
-            <div
-              className="popover"
-              style={{
-                ...headerPopoverPlacement,
-                zIndex: 40,
-                background: "var(--card)",
-                border: "1px solid var(--line)",
-                borderRadius: 12,
-                padding: 16,
-                overflowY: "auto",
+        {showSettings && (
+          <CenteredOverlay onClose={() => setShowSettings(false)}>
+            <AISettingsPanel
+              onClose={(chosenEngine) => {
+                setShowSettings(false);
+                if (chosenEngine) {
+                  // Trust what was just chosen in this session rather than
+                  // re-reading storage, which can be unreliable in restricted
+                  // preview contexts (e.g. iOS Quick Look) even right after a
+                  // successful write.
+                  setEngine(chosenEngine);
+                } else {
+                  refreshEngine();
+                }
               }}
-            >
-              <AISettingsPanel
-                onClose={(chosenEngine) => {
-                  setShowSettings(false);
-                  if (chosenEngine) {
-                    // Trust what was just chosen in this session rather than
-                    // re-reading storage, which can be unreliable in restricted
-                    // preview contexts (e.g. iOS Quick Look) even right after a
-                    // successful write.
-                    setEngine(chosenEngine);
-                  } else {
-                    refreshEngine();
-                  }
-                }}
-              />
-            </div>
-          </>
+            />
+          </CenteredOverlay>
         )}
-        {showBackup && headerPopoverPlacement && (
-          <>
-            <div className="popover-backdrop" onClick={() => setShowBackup(false)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 39 }} />
-            <div
-              className="popover"
-              style={{
-                ...headerPopoverPlacement,
-                zIndex: 40,
-                background: "var(--card)",
-                border: "1px solid var(--line)",
-                borderRadius: 12,
-                padding: 16,
-                overflowY: "auto",
-              }}
-            >
-              <BackupPanel cards={cards} categories={categories} replaceAllData={replaceAllData} showToast={showToast} onClose={() => setShowBackup(false)} />
-            </div>
-          </>
+        {showBackup && (
+          <CenteredOverlay onClose={() => setShowBackup(false)}>
+            <BackupPanel cards={cards} categories={categories} replaceAllData={replaceAllData} showToast={showToast} onClose={() => setShowBackup(false)} />
+          </CenteredOverlay>
         )}
       </div>
       <div style={{ padding: "0 16px calc(96px + env(safe-area-inset-bottom, 0px))" }}>
@@ -1623,7 +1582,7 @@ function Shell({ children }) {
         @keyframes cardEnterBack { from { opacity: 0.25; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
         .card-enter-next { animation: cardEnterNext 0.4s ease-out; }
         .card-enter-back { animation: cardEnterBack 0.4s ease-out; }
-        @keyframes popoverIn { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes popoverIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
         .popover { animation: popoverIn 0.16s ease-out; box-shadow: 0 10px 28px rgba(35,39,42,0.16); }
         @keyframes backdropFadeIn { from { opacity: 0; } to { opacity: 1; } }
         .popover-backdrop { animation: backdropFadeIn 0.16s ease-out; }
@@ -1760,7 +1719,6 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const [dragging, setDragging] = useState(false);
   const [exiting, setExiting] = useState(null); // null | "left" | "right"
   const gesture = useRef({ startX: 0, startY: 0, active: false });
-  const cardAreaRef = useRef(null);
 
   // Word-insight popup — cached per card so revisiting one in the same
   // session doesn't re-spend a request.
@@ -1776,7 +1734,6 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const [askAnswer, setAskAnswer] = useState("");
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
-  const studyPopoverPlacement = usePopoverPlacement(!!insightFor || !!askFor, cardAreaRef);
 
   // The session's card order is frozen when it starts (or when a filter
   // changes) so marking a card known mid-session doesn't yank it out from
@@ -1945,16 +1902,16 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const starredInSessionCount = sessionCards.filter((c) => c.starred).length;
 
   return (
-    <div ref={cardAreaRef} style={{ position: "relative" }}>
+    <div>
       <div style={{ marginBottom: 10 }}>
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
-          ★ Starred only
+          ★ Starred
         </Pill>
         <Pill color="#4C8A5E" active={includeKnown} onClick={() => setIncludeKnown(!includeKnown)}>
-          ✓ Include known
+          ✓ Known
         </Pill>
         <button
           onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
@@ -1965,9 +1922,10 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
             border: "1px solid var(--line)",
             background: "var(--card)",
             borderRadius: 999,
-            padding: "5px 11px",
+            padding: "6px 13px",
             fontFamily: "var(--sans)",
-            fontSize: 12,
+            fontSize: 13,
+            whiteSpace: "nowrap",
             color: "var(--muted)",
             cursor: "pointer",
             marginLeft: "auto",
@@ -2225,85 +2183,57 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
         </>
       )}
 
-      {insightFor && studyPopoverPlacement && (
-        <>
-          <div className="popover-backdrop" onClick={() => setInsightFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 29 }} />
-          <div
-            className="popover"
-            style={{
-              ...studyPopoverPlacement,
-              zIndex: 30,
-              background: "var(--card)",
-              border: "1px solid var(--line)",
-              borderRadius: 12,
-              padding: 16,
-              overflowY: "auto",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
-                {cards.find((c) => c.id === insightFor)?.front}
-              </div>
-              <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                <Icon.X size={18} />
-              </button>
+      {insightFor && (
+        <CenteredOverlay onClose={() => setInsightFor(null)}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
+              {cards.find((c) => c.id === insightFor)?.front}
             </div>
-            {insightLoading ? (
-              <div style={{ textAlign: "center", padding: "24px 0" }}>
-                <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
-              </div>
-            ) : insightError ? (
-              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
-            ) : (
-              <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
-                {insightCache[insightFor]}
-              </div>
-            )}
+            <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+              <Icon.X size={18} />
+            </button>
           </div>
-        </>
+          {insightLoading ? (
+            <div style={{ textAlign: "center", padding: "24px 0" }}>
+              <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
+            </div>
+          ) : insightError ? (
+            <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+          ) : (
+            <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+              {insightCache[insightFor]}
+            </div>
+          )}
+        </CenteredOverlay>
       )}
 
-      {askFor && studyPopoverPlacement && (
-        <>
-          <div className="popover-backdrop" onClick={() => setAskFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 29 }} />
-          <div
-            className="popover"
-            style={{
-              ...studyPopoverPlacement,
-              zIndex: 30,
-              background: "var(--card)",
-              border: "1px solid var(--line)",
-              borderRadius: 12,
-              padding: 16,
-              overflowY: "auto",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
-                Ask about "{cards.find((c) => c.id === askFor)?.front}"
-              </div>
-              <button onClick={() => setAskFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                <Icon.X size={18} />
-              </button>
+      {askFor && (
+        <CenteredOverlay onClose={() => setAskFor(null)}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
+              Ask about "{cards.find((c) => c.id === askFor)?.front}"
             </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              <input
-                value={askQuestion}
-                onChange={(e) => setAskQuestion(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-                placeholder='e.g. "how do you say the noun version of this?"'
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button onClick={submitAsk} disabled={askLoading || !askQuestion.trim()} style={smallBtn("var(--fjord)")}>
-                {askLoading ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Send size={14} />}
-              </button>
-            </div>
-            {askError && <AIErrorNote message={askError} onOpenSettings={onOpenSettings} />}
-            {askAnswer && (
-              <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{askAnswer}</div>
-            )}
+            <button onClick={() => setAskFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+              <Icon.X size={18} />
+            </button>
           </div>
-        </>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input
+              value={askQuestion}
+              onChange={(e) => setAskQuestion(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitAsk()}
+              placeholder='e.g. "how do you say the noun version of this?"'
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button onClick={submitAsk} disabled={askLoading || !askQuestion.trim()} style={smallBtn("var(--fjord)")}>
+              {askLoading ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Send size={14} />}
+            </button>
+          </div>
+          {askError && <AIErrorNote message={askError} onOpenSettings={onOpenSettings} />}
+          {askAnswer && (
+            <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{askAnswer}</div>
+          )}
+        </CenteredOverlay>
       )}
     </div>
   );
@@ -2324,8 +2254,6 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
   const [insightCache, setInsightCache] = useState({});
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
-  const insightRowRef = useRef(null);
-  const rowPopoverPlacement = usePopoverPlacement(!!insightFor, insightRowRef);
 
   const activeFilterCount =
     (catFilter !== "all" ? 1 : 0) +
@@ -2565,11 +2493,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
               {expandedLetters.has(g.letter) && (
                 <div style={{ marginTop: 8 }}>
                   {g.cards.map((c) => (
-                    <div
-                      key={c.id}
-                      ref={insightFor === c.id ? insightRowRef : null}
-                      style={{ position: "relative" }}
-                    >
+                    <div key={c.id}>
                       <LibraryRow
                         card={c}
                         categories={categories}
@@ -2584,37 +2508,23 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
                         onDelete={() => deleteCard(c.id)}
                         onExplore={() => openInsight(c)}
                       />
-                      {insightFor === c.id && rowPopoverPlacement && (
-                        <>
-                          <div className="popover-backdrop" onClick={() => setInsightFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 19 }} />
-                          <div
-                            className="popover"
-                            style={{
-                              ...rowPopoverPlacement,
-                              zIndex: 20,
-                              background: "var(--card)",
-                              border: "1px solid var(--line)",
-                              borderRadius: 10,
-                              padding: 14,
-                              overflowY: "auto",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-                              <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                                <Icon.X size={16} />
-                              </button>
-                            </div>
-                            {insightLoading ? (
-                              <div style={{ textAlign: "center", padding: "16px 0" }}>
-                                <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
-                              </div>
-                            ) : insightError ? (
-                              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
-                            ) : (
-                              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightCache[insightFor]}</div>
-                            )}
+                      {insightFor === c.id && (
+                        <CenteredOverlay onClose={() => setInsightFor(null)} maxWidth={380}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                            <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                              <Icon.X size={16} />
+                            </button>
                           </div>
-                        </>
+                          {insightLoading ? (
+                            <div style={{ textAlign: "center", padding: "16px 0" }}>
+                              <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
+                            </div>
+                          ) : insightError ? (
+                            <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+                          ) : (
+                            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightCache[insightFor]}</div>
+                          )}
+                        </CenteredOverlay>
                       )}
                     </div>
                   ))}
@@ -3840,8 +3750,6 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
   const [insightText, setInsightText] = useState("");
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
-  const lookupResultRef = useRef(null);
-  const lookupPopoverPlacement = usePopoverPlacement(!!insightFor, lookupResultRef);
 
   async function openInsight(word, meaning) {
     setInsightFor(word);
@@ -4009,7 +3917,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
 
       {lookupResult && (
-        <div ref={lookupResultRef} style={{ position: "relative", marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
+        <div style={{ position: "relative", marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
           <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.5, marginBottom: 10 }}>
             {lookupIsWordLike && (
               <>
@@ -4073,38 +3981,24 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
             </div>
           </div>
 
-          {insightFor && lookupPopoverPlacement && (
-            <>
-              <div className="popover-backdrop" onClick={() => setInsightFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 19 }} />
-              <div
-                className="popover"
-                style={{
-                  ...lookupPopoverPlacement,
-                  zIndex: 20,
-                  background: "var(--card)",
-                  border: "1px solid var(--line)",
-                  borderRadius: 10,
-                  padding: 14,
-                  overflowY: "auto",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{insightFor}</div>
-                  <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                    <Icon.X size={16} />
-                  </button>
-                </div>
-                {insightLoading ? (
-                  <div style={{ textAlign: "center", padding: "16px 0" }}>
-                    <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
-                  </div>
-                ) : insightError ? (
-                  <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
-                ) : (
-                  <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightText}</div>
-                )}
+          {insightFor && (
+            <CenteredOverlay onClose={() => setInsightFor(null)} maxWidth={380}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{insightFor}</div>
+                <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                  <Icon.X size={16} />
+                </button>
               </div>
-            </>
+              {insightLoading ? (
+                <div style={{ textAlign: "center", padding: "16px 0" }}>
+                  <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
+                </div>
+              ) : insightError ? (
+                <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+              ) : (
+                <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightText}</div>
+              )}
+            </CenteredOverlay>
           )}
         </div>
       )}
