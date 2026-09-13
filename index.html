@@ -187,6 +187,13 @@ const Icon = {
   )),
   ChevronUp: makeIcon(() => <polyline points="5,15 12,8 19,15" />),
   ChevronDown: makeIcon(() => <polyline points="5,9 12,16 19,9" />),
+  Volume2: makeIcon(() => (
+    <>
+      <polygon points="3,9 3,15 8,15 13,20 13,4 8,9" />
+      <path d="M16 8a5 5 0 0 1 0 8" />
+      <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+    </>
+  )),
   Check: makeIcon(() => <polyline points="4,12 9,17 20,6" />),
   X: makeIcon(() => (
     <>
@@ -332,7 +339,7 @@ const DEFAULT_CATEGORIES = [{ id: "grammar-lessons", name: "Grammar Lessons", cu
 const LEGACY_EMPTY_CATEGORY_IDS = ["verbs", "gender", "structure", "conditional", "prepositions", "phrases", "false-friends"];
 
 const TYPE_LABEL = { word: "Word", sentence: "Sentence", grammar: "Grammar" };
-const TYPE_COLOR = { word: "#4C6B65", sentence: "#A1432E", grammar: "#7A5C8E" };
+const TYPE_COLOR = { word: "#4C6B65", sentence: "#C1653F", grammar: "#8C6FA0" };
 
 // Preloaded starter vocabulary — no AI involved. Written once, works
 // instantly offline, and never costs a request. Roughly 1,350 words
@@ -635,6 +642,93 @@ const STARTER_WORDS = {
   ],
 };
 
+// A small, carefully-vetted set of core Danish grammar points, seeded the
+// same way starter vocabulary is. Kept deliberately modest — these are
+// solid, textbook-level facts rather than edge cases or contested
+// details, since accuracy matters more here than breadth.
+const STARTER_GRAMMAR = [
+  {
+    name: "En/et gender",
+    explanation:
+      "Danish nouns are either 'common gender' (using en) or 'neuter' (using et) — there's no reliable rule for which is which, so each noun's gender has to be learned along with the word itself. It affects the indefinite article, the definite ending, and how adjectives agree with the noun.",
+    examples: [
+      ["en kop", "a cup"],
+      ["et bord", "a table"],
+      ["en stol", "a chair"],
+    ],
+  },
+  {
+    name: "Definite articles as a suffix",
+    explanation:
+      "Unlike English 'the', Danish usually shows definiteness by adding an ending onto the noun itself rather than using a separate word. En-words add -en, et-words add -et.",
+    examples: [
+      ["hunden", "the dog"],
+      ["huset", "the house"],
+      ["bilen", "the car"],
+    ],
+  },
+  {
+    name: "V2 word order (verb-second)",
+    explanation:
+      "In a Danish main clause, the finite (conjugated) verb has to be the second grammatical element, no matter what comes first. If something other than the subject starts the sentence — like a time expression — the subject and verb swap places compared to how English would order them.",
+    examples: [
+      ["Jeg går i skole i dag.", "I go to school today."],
+      ["I dag går jeg i skole.", "Today I go to school."],
+      ["I morgen skal vi rejse.", "Tomorrow we will travel."],
+    ],
+  },
+  {
+    name: "Negation with ikke",
+    explanation:
+      "In a main clause, 'ikke' (not) comes right after the finite verb. In a subordinate clause — one starting with a word like 'at', 'fordi', or 'hvis' — 'ikke' moves to before the finite verb instead.",
+    examples: [
+      ["Jeg forstår ikke.", "I don't understand."],
+      ["Han sagde, at han ikke forstod.", "He said that he didn't understand."],
+      ["Hvis du ikke kommer, ringer jeg.", "If you don't come, I'll call."],
+    ],
+  },
+  {
+    name: "Modal verbs + bare infinitive",
+    explanation:
+      "After a modal verb like kan, skal, vil, or må, the following verb is a plain infinitive with no 'at' (Danish's equivalent of 'to'). Most other verbs that take an infinitive DO require 'at' before it.",
+    examples: [
+      ["Jeg kan svømme.", "I can swim."],
+      ["Jeg vil prøve at svømme.", "I want to try to swim."],
+      ["Du skal huske det.", "You must remember it."],
+    ],
+  },
+  {
+    name: "Adjective agreement",
+    explanation:
+      "Danish adjectives change their ending depending on the noun they describe: no extra ending before a common-gender singular noun, -t before a neuter singular noun, and -e before any plural noun or in the definite form.",
+    examples: [
+      ["en stor hund", "a big dog"],
+      ["et stort hus", "a big house"],
+      ["store huse", "big houses"],
+    ],
+  },
+  {
+    name: "Plural noun patterns",
+    explanation:
+      "Most Danish nouns form their plural with -er or -e, and a smaller group don't change at all. Which pattern a given noun follows isn't fully predictable, so it's usually learned alongside the word itself.",
+    examples: [
+      ["en bil, biler", "a car, cars"],
+      ["et æble, æbler", "an apple, apples"],
+      ["et hus, huse", "a house, houses"],
+    ],
+  },
+  {
+    name: "Present tense has one form for every subject",
+    explanation:
+      "Danish verbs don't change based on who's doing the action — jeg, du, han, vi, I, and de all use the exact same verb form in the present tense. This is simpler than English, which changes for 'he/she/it'.",
+    examples: [
+      ["jeg går", "I go"],
+      ["han går", "he goes"],
+      ["de går", "they go"],
+    ],
+  },
+];
+
 // Shared by the auto-seed on first launch and the manual "Add starter
 // vocabulary" button in Library — builds only what's not already present.
 // Deterministic across every device, forever, as long as the Danish text
@@ -657,6 +751,11 @@ function buildStarterAdditions(existingCategories, existingFrontsSet) {
   const newCategories = Object.keys(STARTER_WORDS)
     .filter((name) => !existingCatNames.has(name.toLowerCase()))
     .map((name) => ({ id: uid(), name, custom: false }));
+  // "Grammar Lessons" should always exist too, even on the rare chance
+  // it's somehow missing (categories were reset, imported without it, etc).
+  if (!existingCatNames.has("grammar lessons") && !newCategories.some((c) => c.name.toLowerCase() === "grammar lessons")) {
+    newCategories.push({ id: "grammar-lessons", name: "Grammar Lessons", custom: false });
+  }
   const combinedCategories = [...existingCategories, ...newCategories];
   const nameToId = {};
   combinedCategories.forEach((c) => {
@@ -673,6 +772,23 @@ function buildStarterAdditions(existingCategories, existingFrontsSet) {
       newCards.push({ id: stableStarterId(da), type: "word", front: da, back: en, category: nameToId[catName.toLowerCase()], starter: true });
     });
   });
+
+  const grammarLessonsId = nameToId["grammar lessons"];
+  STARTER_GRAMMAR.forEach((point) => {
+    const key = point.name.trim().toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    newCards.push({
+      id: stableStarterId(point.name),
+      type: "grammar",
+      front: point.name,
+      back: point.explanation,
+      category: grammarLessonsId,
+      examples: point.examples.map(([da, en]) => ({ da, en })),
+      starter: true,
+    });
+  });
+
   return { newCategories, newCards, combinedCategories };
 }
 
@@ -686,6 +802,51 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+
+// AI responses sometimes use **bold**/*italic* markdown even when asked
+// for plain text — rendered raw, that looks like broken output rather
+// than a real answer. This renders just those two, nothing fancier.
+function renderInlineMarkdown(text) {
+  if (!text) return text;
+  const parts = [];
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    if (match[2] !== undefined) parts.push(<strong key={key++}>{match[2]}</strong>);
+    else if (match[3] !== undefined) parts.push(<em key={key++}>{match[3]}</em>);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
+// Uses the browser's own built-in text-to-speech (Web Speech API) — no
+// network call, no AI involved, works offline. A prior attempt at
+// pronunciation generated audio via an AI call instead, which had
+// reliability problems and was removed; this is a completely different,
+// much simpler mechanism that's been a mature, well-supported browser
+// feature (including in Safari) for years.
+function speechSupported() {
+  return typeof window !== "undefined" && !!window.speechSynthesis;
+}
+function pickDanishVoice() {
+  if (!speechSupported()) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("da")) || null;
+}
+function speakDanish(text) {
+  if (!text || !speechSupported()) return false;
+  window.speechSynthesis.cancel(); // stop anything already playing first
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "da-DK";
+  const voice = pickDanishVoice();
+  if (voice) utterance.voice = voice;
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
 
 function parseJSONLoose(text) {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -821,7 +982,7 @@ async function buildHeaders() {
 // the body genuinely isn't JSON, so a real failure always comes with the
 // actual response content instead of a dead end.
 async function fetchAndParse(url, options) {
-  const maxAttempts = 3;
+  const maxAttempts = 4;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const isLastAttempt = attempt === maxAttempts - 1;
     let res;
@@ -829,7 +990,7 @@ async function fetchAndParse(url, options) {
       res = await fetch(url, options);
     } catch (e) {
       if (!isLastAttempt) {
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
         continue;
       }
       throw new Error("NETWORK_ERROR: " + (e && e.message ? e.message : e));
@@ -841,7 +1002,7 @@ async function fetchAndParse(url, options) {
       text = "";
     }
     if (res.ok && !text.trim() && !isLastAttempt) {
-      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
       continue; // empty 200 body — usually transient, worth retrying
     }
     let data;
@@ -849,7 +1010,7 @@ async function fetchAndParse(url, options) {
       data = text ? JSON.parse(text) : {};
     } catch (e) {
       if (!isLastAttempt) {
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
         continue; // unparsable body — worth retrying
       }
       throw new Error("RESPONSE_NOT_JSON: " + (text ? text.slice(0, 180) : "(empty response)"));
@@ -876,7 +1037,9 @@ async function callClaudeText(system, userText, opts) {
     }),
   });
   if (!res.ok) throw new Error("Request failed (" + res.status + "): " + (data.error?.message || JSON.stringify(data).slice(0, 180)));
-  return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const reply = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  if (!reply.trim()) throw new Error("RESPONSE_NOT_JSON: (empty response)");
+  return reply;
 }
 
 async function callClaudeImage(system, userText, base64, mediaType) {
@@ -900,7 +1063,9 @@ async function callClaudeImage(system, userText, base64, mediaType) {
     }),
   });
   if (!res.ok) throw new Error("Request failed (" + res.status + "): " + (data.error?.message || JSON.stringify(data).slice(0, 180)));
-  return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const reply = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  if (!reply.trim()) throw new Error("RESPONSE_NOT_JSON: (empty response)");
+  return reply;
 }
 
 // Google Gemini's free tier — no credit card, callable directly from a
@@ -965,12 +1130,46 @@ async function callGeminiImage(system, userText, base64, mediaType) {
   });
 }
 
+async function callOllamaText(system, userText, opts) {
+  const maxTokens = (opts && opts.maxTokens) || 1500;
+  const history = (opts && opts.history) || [];
+  let config;
+  try {
+    const raw = await storeGet("ollamaConfig");
+    config = raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    config = null;
+  }
+  if (!config || !config.url || !config.model) throw new Error("MISSING_OLLAMA_CONFIG");
+  const messages = [{ role: "system", content: system }, ...history, { role: "user", content: userText }];
+  let res;
+  try {
+    // Ollama's OpenAI-compatible endpoint — needs OLLAMA_ORIGINS set on
+    // their end to accept a request from this page's origin at all.
+    res = await fetch(config.url + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: config.model, messages, max_tokens: maxTokens }),
+    });
+  } catch (e) {
+    throw new Error("OLLAMA_UNREACHABLE");
+  }
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    throw new Error("OLLAMA_ERROR: " + res.status + (bodyText ? " " + bodyText.slice(0, 200) : ""));
+  }
+  const data = await res.json();
+  const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!content) throw new Error("OLLAMA_ERROR: empty response");
+  return content;
+}
+
 async function getAIEngine() {
   // An explicit choice (e.g. switching to Gemini as a fallback) always
   // wins — Claude's own model is only the zero-setup default when nothing
   // has been chosen yet.
   const v = await storeGet("aiEngine");
-  if (v === "local" || v === "api" || v === "gemini") return v;
+  if (v === "local" || v === "api" || v === "gemini" || v === "ollama") return v;
   if (inClaudeApp()) return "api";
   return null;
 }
@@ -980,6 +1179,7 @@ async function callAI(system, userText, opts) {
   if (engine === "local") return callLocalText(system, userText, opts);
   if (engine === "gemini") return callGeminiText(system, userText, opts);
   if (engine === "api") return callClaudeText(system, userText, opts);
+  if (engine === "ollama") return callOllamaText(system, userText, opts);
   throw new Error("NO_ENGINE_CHOSEN");
 }
 
@@ -996,6 +1196,11 @@ function apiErrorMessage(e) {
   if (msg && msg.indexOf("RESPONSE_NOT_JSON") === 0)
     return "Got an unexpected response instead of an answer (" + msg.replace("RESPONSE_NOT_JSON: ", "") + "). Try again — if it keeps happening, this is worth reporting.";
   if (msg === "NO_ENGINE_CHOSEN") return "Choose an AI option in AI settings first.";
+  if (msg === "MISSING_OLLAMA_CONFIG") return "Set up your Ollama address and model name in AI settings to use this.";
+  if (msg === "TRANSLATION_DIDNT_HAPPEN") return "Didn't get an actual translation back — try again.";
+  if (msg === "OLLAMA_UNREACHABLE")
+    return "Couldn't reach Ollama — make sure it's running on this computer, and that you started it with OLLAMA_ORIGINS=* so this page is allowed to connect.";
+  if (msg && msg.indexOf("OLLAMA_ERROR") === 0) return "Ollama returned an error (" + msg.replace("OLLAMA_ERROR: ", "") + "). Check the model name is exactly right and try again.";
   if (msg === "WEBGPU_UNSUPPORTED")
     return "Your browser doesn't support the local model (needs WebGPU — try a recent Chrome or Edge), or switch to API key mode in AI settings.";
   if (msg === "LOCAL_MODEL_LOAD_FAILED") return "Couldn't load the local model. Check your connection, or switch to API key mode in AI settings.";
@@ -1010,7 +1215,7 @@ function apiErrorMessage(e) {
 // text so every call site can reuse this without threading raw error
 // objects through extra state.
 function isSwitchableAIError(message) {
-  return !!message && /AI settings|free tier limits|rejected the API key|doesn't support the local model|Couldn't load the local model/i.test(message);
+  return !!message && /AI settings|free tier limits|rejected the API key|doesn't support the local model|Couldn't load the local model|reach Ollama/i.test(message);
 }
 
 function AIErrorNote({ message, onOpenSettings }) {
@@ -1708,7 +1913,7 @@ function Toast({ msg }) {
 function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, engine }) {
   const [catFilter, setCatFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
-  const [includeKnown, setIncludeKnown] = useState(false);
+  const [unknownOnly, setUnknownOnly] = useState(true);
   const [langDir, setLangDir] = useState("da-first"); // da-first | en-first
   const [flipped, setFlipped] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -1742,7 +1947,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   useEffect(() => {
     const ids = cards
       .filter((c) => {
-        if (!includeKnown && c.known) return false;
+        if (unknownOnly && c.known) return false;
         if (catFilter !== "all" && c.category !== catFilter) return false;
         if (starredOnly && !c.starred) return false;
         return true;
@@ -1761,7 +1966,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     setDragX(0);
     setExiting(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catFilter, starredOnly, includeKnown, sessionKey]);
+  }, [catFilter, starredOnly, unknownOnly, sessionKey]);
 
   const current = cards.find((c) => c.id === poolIds[idx]);
 
@@ -1907,11 +2112,11 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
+        <Pill color="var(--terracotta)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
           ★ Starred
         </Pill>
-        <Pill color="#4C8A5E" active={includeKnown} onClick={() => setIncludeKnown(!includeKnown)}>
-          ✓ Known
+        <Pill color="var(--sage)" active={unknownOnly} onClick={() => setUnknownOnly(!unknownOnly)}>
+          Unknown
         </Pill>
         <button
           onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
@@ -2091,8 +2296,23 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
                   }}
                 >
                   {langDir === "da-first" ? (
-                    <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
-                      {current.front}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                      <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
+                        {current.front}
+                      </div>
+                      {speechSupported() && (
+                        <button
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            speakDanish(current.front);
+                          }}
+                          aria-label="Pronounce this"
+                          style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                        >
+                          <Icon.Volume2 size={20} />
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: current.type === "word" ? 26 : 18, lineHeight: 1.4, color: "var(--sage)" }}>
@@ -2122,8 +2342,23 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
                       {current.back}
                     </div>
                   ) : (
-                    <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
-                      {current.front}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                      <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
+                        {current.front}
+                      </div>
+                      {speechSupported() && (
+                        <button
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            speakDanish(current.front);
+                          }}
+                          aria-label="Pronounce this"
+                          style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                        >
+                          <Icon.Volume2 size={20} />
+                        </button>
+                      )}
                     </div>
                   )}
                   {current.notes && (
@@ -2201,7 +2436,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
             <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
           ) : (
             <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
-              {insightCache[insightFor]}
+              {renderInlineMarkdown(insightCache[insightFor])}
             </div>
           )}
         </CenteredOverlay>
@@ -2231,7 +2466,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
           </div>
           {askError && <AIErrorNote message={askError} onOpenSettings={onOpenSettings} />}
           {askAnswer && (
-            <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{askAnswer}</div>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(askAnswer)}</div>
           )}
         </CenteredOverlay>
       )}
@@ -2425,7 +2660,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
           <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Type</div>
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
             {["all", "word", "sentence", "grammar"].map((t) => (
-              <Pill key={t} color="var(--rust)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
+              <Pill key={t} color="var(--terracotta)" active={typeFilter === t} onClick={() => setTypeFilter(t)}>
                 {t === "all" ? "All types" : TYPE_LABEL[t]}
               </Pill>
             ))}
@@ -2433,10 +2668,10 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
 
           <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Progress</div>
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
+            <Pill color="var(--terracotta)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
               ★ Starred
             </Pill>
-            <Pill color="#4C8A5E" active={knownFilter === "known"} onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}>
+            <Pill color="var(--sage)" active={knownFilter === "known"} onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}>
               ✓ Known ({knownCount})
             </Pill>
           </div>
@@ -2522,7 +2757,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
                           ) : insightError ? (
                             <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
                           ) : (
-                            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightCache[insightFor]}</div>
+                            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightCache[insightFor])}</div>
                           )}
                         </CenteredOverlay>
                       )}
@@ -2602,6 +2837,11 @@ function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, o
           {catName}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {speechSupported() && (
+            <button onClick={() => speakDanish(card.front)} style={iconBtn} aria-label="Pronounce this">
+              <Icon.Volume2 size={15} />
+            </button>
+          )}
           <button onClick={onExplore} style={iconBtn} aria-label="Explore related words">
             <Icon.Lightbulb size={15} />
           </button>
@@ -2630,6 +2870,7 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
   const [lookupError, setLookupError] = useState("");
   const [autoFilling, setAutoFilling] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [grammarPreview, setGrammarPreview] = useState(null);
   const categoryTouched = useRef(false);
 
   const copy = {
@@ -2673,7 +2914,7 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help fill in a Danish learner's flashcard. Given a single word or short phrase, give its natural translation and the single best-fitting category for it. The translation must be ONLY in the target language — never repeat or include the original word/phrase alongside it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
+        "You help fill in a Danish learner's flashcard. Given a single word or short phrase, give its natural translation and the single best-fitting category for it. Be precise about its actual part of speech before choosing a category — don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective; check the word's real grammatical role rather than assuming from its surface form. The translation must be ONLY in the target language — never repeat or include the original word/phrase alongside it. If it's a Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         (direction === "da" ? "Danish" : "English") +
           ' text: "' +
           trimmed +
@@ -2721,15 +2962,22 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
         { maxTokens: 900 }
       );
       const parsed = parseJSONLoose(reply);
-      setBack(parsed.explanation || "");
-      if (parsed.examples && parsed.examples.length) {
-        setExamples(parsed.examples.map((ex) => ({ da: ex.da || "", en: ex.en || "" })));
-      }
+      setGrammarPreview({
+        explanation: parsed.explanation || "",
+        examples: (parsed.examples || []).map((ex) => ({ da: ex.da || "", en: ex.en || "" })),
+      });
     } catch (e) {
       setLookupError(apiErrorMessage(e));
     } finally {
       setLookingUp(false);
     }
+  }
+
+  function useGrammarPreview() {
+    if (!grammarPreview) return;
+    setBack(grammarPreview.explanation);
+    if (grammarPreview.examples.length) setExamples(grammarPreview.examples);
+    setGrammarPreview(null);
   }
 
   function submit() {
@@ -2766,6 +3014,7 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
     setExamples([{ da: "", en: "" }]);
     setLookupError("");
     setSubmitError("");
+    setGrammarPreview(null);
     categoryTouched.current = false;
   }
 
@@ -2811,7 +3060,7 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
       </Field>
 
       {(type === "word" || type === "sentence") && (
-        <div style={{ marginTop: -6, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "center", margin: "14px 0" }}>
           <button
             onClick={triggerAutoFill}
             disabled={autoFilling || !((front.trim() && !back.trim()) || (back.trim() && !front.trim()))}
@@ -2819,46 +3068,74 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
               display: "flex",
               alignItems: "center",
               gap: 6,
-              border: "none",
-              background: "none",
+              border: "1px solid " + ((front.trim() && !back.trim()) || (back.trim() && !front.trim()) ? "var(--fjord)" : "#D8D4CB"),
+              background: (front.trim() && !back.trim()) || (back.trim() && !front.trim()) ? "#EEF2F0" : "transparent",
+              borderRadius: 999,
+              padding: "7px 16px",
               color: (front.trim() && !back.trim()) || (back.trim() && !front.trim()) ? "var(--fjord)" : "#B8B3A5",
               fontFamily: "var(--sans)",
-              fontSize: 12.5,
-              fontWeight: 600,
+              fontSize: 13,
+              fontWeight: 700,
               cursor: (front.trim() && !back.trim()) || (back.trim() && !front.trim()) ? "pointer" : "default",
-              padding: 0,
             }}
           >
-            {autoFilling ? <Icon.Loader2 size={12} className="spin" /> : <Icon.Wand2 size={12} />}
+            {autoFilling ? <Icon.Loader2 size={13} className="spin" /> : <Icon.Wand2 size={13} />}
             {autoFilling ? "Filling in…" : "Fill in translation"}
           </button>
         </div>
       )}
 
       {type === "grammar" && (
-        <div style={{ marginTop: -6, marginBottom: 14 }}>
-          <button
-            onClick={lookupGrammar}
-            disabled={!front.trim() || lookingUp}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              border: "none",
-              background: "none",
-              color: front.trim() ? "var(--fjord)" : "#B8B3A5",
-              fontFamily: "var(--sans)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: front.trim() ? "pointer" : "default",
-              padding: 0,
-            }}
-          >
-            {lookingUp ? <Icon.Loader2 size={12} className="spin" /> : <Icon.Wand2 size={12} />}
-            {lookingUp ? "Asking…" : "Ask AI to explain this"}
-          </button>
+        <div style={{ margin: "14px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button
+              onClick={lookupGrammar}
+              disabled={!front.trim() || lookingUp}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                border: "1px solid " + (front.trim() ? "var(--fjord)" : "#D8D4CB"),
+                background: front.trim() ? "#EEF2F0" : "transparent",
+                borderRadius: 999,
+                padding: "7px 16px",
+                color: front.trim() ? "var(--fjord)" : "#B8B3A5",
+                fontFamily: "var(--sans)",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: front.trim() ? "pointer" : "default",
+              }}
+            >
+              {lookingUp ? <Icon.Loader2 size={13} className="spin" /> : <Icon.Wand2 size={13} />}
+              {lookingUp ? "Asking…" : "Ask AI to explain this"}
+            </button>
+          </div>
           <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
         </div>
+      )}
+
+      {grammarPreview && (
+        <CenteredOverlay onClose={() => setGrammarPreview(null)} maxWidth={440}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 17, color: "var(--terracotta)" }}>{front}</div>
+            <button onClick={() => setGrammarPreview(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+              <Icon.X size={18} />
+            </button>
+          </div>
+          <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 14 }}>{renderInlineMarkdown(grammarPreview.explanation)}</div>
+          {grammarPreview.examples.length > 0 && (
+            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12, marginBottom: 16 }}>
+              {grammarPreview.examples.map((ex, i) => (
+                <div key={i} style={{ fontFamily: "var(--sans)", fontSize: 13.5, marginBottom: 6 }}>
+                  <span style={{ color: "var(--terracotta)" }}>{ex.da}</span> — <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{ex.en}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={useGrammarPreview} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14 }}>
+            Use this
+          </button>
+        </CenteredOverlay>
       )}
 
       <Field label={copy.backLabel}>
@@ -2948,6 +3225,9 @@ function AISettingsPanel({ onClose }) {
   const [error, setError] = useState("");
   const [confirmingModel, setConfirmingModel] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState(LOCAL_MODEL_ID);
+  const [savedOllamaConfig, setSavedOllamaConfig] = useState(null);
+  const [ollamaUrlInput, setOllamaUrlInput] = useState("http://localhost:11434");
+  const [ollamaModelInput, setOllamaModelInput] = useState("llama3.2");
 
   useEffect(() => {
     (async () => {
@@ -2955,7 +3235,14 @@ function AISettingsPanel({ onClose }) {
       setEngineState(e);
       setSavedGeminiKey(await storeGet("geminiApiKey"));
       setSavedKey(await storeGet("anthropicApiKey"));
-      if (e === "local" || e === "api") setShowMore(true);
+      try {
+        const raw = await storeGet("ollamaConfig");
+        if (raw) setSavedOllamaConfig(JSON.parse(raw));
+      } catch (e) {}
+      // Anthropic is the default, always-visible option now — only
+      // auto-expand "Use something else instead" if a different engine
+      // is the one actually in use, so it's not hidden from its owner.
+      if (e === "local" || e === "gemini" || e === "ollama") setShowMore(true);
     })();
   }, []);
 
@@ -2963,6 +3250,21 @@ function AISettingsPanel({ onClose }) {
     setEngineState(next);
     setError("");
     await storeSet("aiEngine", next);
+  }
+
+  async function saveOllamaConfig() {
+    let url = ollamaUrlInput.trim().replace(/\/+$/, "");
+    const model = ollamaModelInput.trim();
+    if (!url || !model) return;
+    // A very plausible mistake — the placeholder shows "http://..." but
+    // it's easy to type just "localhost:11434" and skip the protocol,
+    // which would silently fail as a relative URL instead of a real request.
+    if (!/^https?:\/\//i.test(url)) url = "http://" + url;
+    const config = { url, model };
+    await storeSet("ollamaConfig", JSON.stringify(config));
+    setSavedOllamaConfig(config);
+    await chooseEngine("ollama");
+    onClose("ollama");
   }
 
   async function saveGeminiKey() {
@@ -2999,7 +3301,7 @@ function AISettingsPanel({ onClose }) {
     }
   }
 
-  const geminiActive = engine === "gemini";
+  const apiActive = engine === "api";
 
   return (
     <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 16, marginBottom: 14 }}>
@@ -3010,72 +3312,40 @@ function AISettingsPanel({ onClose }) {
 
       <div
         style={{
-          border: "1.5px solid " + (geminiActive ? "var(--fjord)" : "var(--line)"),
+          border: "1.5px solid " + (apiActive ? "var(--fjord)" : "var(--line)"),
           borderRadius: 10,
           padding: 14,
-          background: geminiActive ? "#EEF2F0" : "transparent",
+          background: apiActive ? "#EEF2F0" : "transparent",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600 }}>Google Gemini</div>
-          <span style={{ fontFamily: "var(--sans)", fontSize: 10.5, fontWeight: 700, color: "var(--fjord)", letterSpacing: 0.3 }}>
-            FREE · RECOMMENDED
-          </span>
-        </div>
+        <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Anthropic key</div>
         <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 12 }}>
-          No credit card. Also handles Photo import, since it can read images. Good quality for everyday use, a step
-          behind Claude on tricky grammar.
+          Best quality for Danish specifically, small per-use cost (typically well under a dollar for normal use).
+          From console.anthropic.com.
         </div>
-
-        {savedGeminiKey ? (
+        {savedKey ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>
-              {geminiActive ? "Connected" : "Key saved"}
+              {apiActive ? "Connected" : "Key saved"}
             </span>
             <div style={{ display: "flex", gap: 8 }}>
-              {!geminiActive && (
-                <button onClick={() => chooseEngine("gemini")} style={smallBtn("var(--fjord)")}>
+              {!apiActive && (
+                <button onClick={() => chooseEngine("api")} style={smallBtn("var(--fjord)")}>
                   Use this
                 </button>
               )}
-              <button onClick={() => setSavedGeminiKey(null)} style={smallBtn("#A8A395")}>
+              <button onClick={() => setSavedKey(null)} style={smallBtn("#A8A395")}>
                 Change key
               </button>
             </div>
           </div>
         ) : (
-          <>
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                fontFamily: "var(--sans)",
-                fontSize: 12.5,
-                fontWeight: 600,
-                color: "var(--rust)",
-                textDecoration: "none",
-                marginBottom: 10,
-              }}
-            >
-              Get a free key at aistudio.google.com ↗
-            </a>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="password"
-                value={geminiKeyInput}
-                onChange={(e) => setGeminiKeyInput(e.target.value)}
-                placeholder="Paste your key — AIza…"
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button onClick={saveGeminiKey} style={smallBtn("var(--rust)")}>
-                Save
-              </button>
-            </div>
-          </>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="sk-ant-…" style={{ ...inputStyle, flex: 1 }} />
+            <button onClick={saveKey} style={smallBtn("var(--rust)")}>
+              Save
+            </button>
+          </div>
         )}
       </div>
 
@@ -3090,7 +3360,74 @@ function AISettingsPanel({ onClose }) {
 
       {showMore && (
         <>
-          <div style={{ border: "1.5px solid " + (engine === "local" ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 12 }}>
+          <div
+            style={{
+              border: "1.5px solid " + (engine === "gemini" ? "var(--fjord)" : "var(--line)"),
+              borderRadius: 10,
+              padding: 14,
+              marginTop: 12,
+              background: engine === "gemini" ? "#EEF2F0" : "transparent",
+            }}
+          >
+            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Google Gemini</div>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 12 }}>
+              Free, no credit card. Also handles Photo import, since it can read images. Good quality for everyday
+              use, a step behind Claude on tricky grammar.
+            </div>
+
+            {savedGeminiKey ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>
+                  {engine === "gemini" ? "Connected" : "Key saved"}
+                </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {engine !== "gemini" && (
+                    <button onClick={() => chooseEngine("gemini")} style={smallBtn("var(--fjord)")}>
+                      Use this
+                    </button>
+                  )}
+                  <button onClick={() => setSavedGeminiKey(null)} style={smallBtn("#A8A395")}>
+                    Change key
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontFamily: "var(--sans)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: "var(--rust)",
+                    textDecoration: "none",
+                    marginBottom: 10,
+                  }}
+                >
+                  Get a free key at aistudio.google.com ↗
+                </a>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="password"
+                    value={geminiKeyInput}
+                    onChange={(e) => setGeminiKeyInput(e.target.value)}
+                    placeholder="Paste your key — AIza…"
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button onClick={saveGeminiKey} style={smallBtn("var(--rust)")}>
+                    Save
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{ border: "1.5px solid " + (engine === "local" ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 10 }}>
             <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Local model</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
               Free, no key, works offline after a one-time download. Needs WebGPU — recent Chrome/Edge, or Safari 26+
@@ -3131,32 +3468,44 @@ function AISettingsPanel({ onClose }) {
             )}
           </div>
 
-          <div style={{ border: "1.5px solid " + (engine === "api" ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 10 }}>
-            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>My Anthropic key</div>
+          <div style={{ border: "1.5px solid " + (engine === "ollama" ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 10 }}>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Ollama</div>
             <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
-              Best quality, small per-use cost. From console.anthropic.com.
+              Free, private, runs on a computer with Ollama already installed. Ollama itself doesn't run on iPhone —
+              but if that computer is on the same Wi-Fi as your phone, you can still use it from here: on the
+              computer, run{" "}
+              <code style={{ background: "var(--paper)", padding: "1px 4px", borderRadius: 4 }}>
+                OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=* ollama serve
+              </code>
+              , then enter that computer's local network address below (something like{" "}
+              <code style={{ background: "var(--paper)", padding: "1px 4px", borderRadius: 4 }}>http://192.168.1.42:11434</code>) instead
+              of localhost. On the same computer, plain localhost works fine.
             </div>
-            {savedKey ? (
+            {engine === "ollama" && savedOllamaConfig ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>
-                  {engine === "api" ? "Connected" : "Key saved"}
+                  Connected — {savedOllamaConfig.model}
                 </span>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {engine !== "api" && (
-                    <button onClick={() => chooseEngine("api")} style={smallBtn("var(--fjord)")}>
-                      Use this
-                    </button>
-                  )}
-                  <button onClick={() => setSavedKey(null)} style={smallBtn("#A8A395")}>
-                    Change key
-                  </button>
-                </div>
+                <button onClick={() => setSavedOllamaConfig(null)} style={smallBtn("#A8A395")}>
+                  Change
+                </button>
               </div>
             ) : (
-              <div style={{ display: "flex", gap: 8 }}>
-                <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="sk-ant-…" style={{ ...inputStyle, flex: 1 }} />
-                <button onClick={saveKey} style={smallBtn("var(--rust)")}>
-                  Save
+              <div>
+                <input
+                  value={ollamaUrlInput}
+                  onChange={(e) => setOllamaUrlInput(e.target.value)}
+                  placeholder="http://localhost:11434"
+                  style={{ ...inputStyle, marginBottom: 8 }}
+                />
+                <input
+                  value={ollamaModelInput}
+                  onChange={(e) => setOllamaModelInput(e.target.value)}
+                  placeholder="Model name — e.g. llama3.2"
+                  style={{ ...inputStyle, marginBottom: 8 }}
+                />
+                <button onClick={saveOllamaConfig} style={smallBtn("var(--rust)")}>
+                  Connect
                 </button>
               </div>
             )}
@@ -3266,7 +3615,6 @@ function ChatView({ categories, addCategory, addCards, showToast, engine, onOpen
 
   const quickActions = [
     { id: "chat", label: "Chat", icon: Icon.MessageCircle },
-    { id: "sentence", label: "Sentence", icon: Icon.Wand2 },
     { id: "article", label: "Translate", icon: Icon.FileText },
     { id: "photo", label: "Photo", icon: Icon.Camera },
   ];
@@ -3306,9 +3654,6 @@ function ChatView({ categories, addCategory, addCards, showToast, engine, onOpen
               active one is visible, the rest are just hidden. */}
           <div style={{ display: mode === "chat" ? "block" : "none" }}>
             <ChatConversation engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} showToast={showToast} onOpenSettings={onOpenSettings} />
-          </div>
-          <div style={{ display: mode === "sentence" ? "block" : "none" }}>
-            <SentencePanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />
           </div>
           <div style={{ display: mode === "article" ? "block" : "none" }}>
             <TextExtractPanel engine={engine} categories={categories} addCategory={addCategory} addCards={addCards} onOpenSettings={onOpenSettings} />
@@ -3396,7 +3741,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
           "'sentence' if this was about how to say or understand one specific sentence (front = the Danish sentence, back = the English translation); " +
           "'grammar' if this was about a rule, pattern, or structure that's more useful explained than just translated (front = a short name for the grammar point, back = a concise plain-English explanation, plus up to 3 short example sentences). " +
           "Don't overuse 'grammar' — most simple vocabulary questions should be 'word' or 'sentence'. " +
-          "For 'word' or 'sentence' types, also pick the single best-fitting category (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. " +
+          "For 'word' or 'sentence' types, also pick the single best-fitting category (e.g. by part of speech or topic) — be precise about the word's actual part of speech first (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. " +
           "If the front is a Danish noun, include its grammatical article (en/et), and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         "Question: " +
           (userMsg ? userMsg.content : "(none)") +
@@ -3461,20 +3806,21 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
         {messages.map((m, i) => (
           <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 8 }}>
             <div
+              className={m.role === "assistant" && !m.isError ? "popover" : undefined}
               style={{
                 maxWidth: "82%",
                 background: m.role === "user" ? "var(--fjord)" : "var(--card)",
                 color: m.role === "user" ? "#FBFAF7" : "var(--ink)",
                 border: m.role === "user" ? "none" : "1px solid var(--line)",
-                borderRadius: 12,
-                padding: "9px 12px",
+                borderRadius: 14,
+                padding: "11px 14px",
                 fontFamily: "var(--sans)",
                 fontSize: 13.5,
-                lineHeight: 1.5,
+                lineHeight: 1.55,
                 whiteSpace: "pre-wrap",
               }}
             >
-              {m.content}
+              {m.role === "user" ? m.content : renderInlineMarkdown(m.content)}
             </div>
             {m.role === "assistant" && !m.isError && (
               <button
@@ -3567,187 +3913,33 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
 
 // ---------- Sentence analysis panel ----------
 
-function SentencePanel({ engine, categories, addCategory, addCards, onOpenSettings }) {
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
-  const [selected, setSelected] = useState({});
-  const [category, setCategory] = useState("");
-
-  async function analyze() {
-    if (!input.trim()) return;
-    setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const text = await callAI(
-        "You are a patient Danish tutor for an intermediate, self-taught learner who has foundational grammar gaps. The user will give you a sentence, in English or Danish, that they're trying to figure out how to say or understand correctly. If what they wrote in Danish has a grammar mistake, you must catch it and clearly point out what was wrong and why — don't silently correct it without mentioning the error, since missing their own mistakes doesn't help them learn. If they wrote in English, or their Danish was already correct, leave the correction note empty. " +
-          "Identify the key grammar structure involved, explain it in plain, concise English (2-4 sentences, no jargon overload), give the correct Danish version of their sentence, and provide exactly 4 more example sentences that use the same grammar structure in different contexts. Also suggest one short category name for this grammar point. " +
-          'Respond ONLY with JSON in this exact shape, no other text: {"correctionNote": "...", "grammarName": "...", "explanation": "...", "mainExample": {"da": "...", "en": "..."}, "examples": [{"da":"...","en":"..."}, {"da":"...","en":"..."}, {"da":"...","en":"..."}, {"da":"...","en":"..."}], "suggestedCategory": "..."} — correctionNote should be an empty string when there was nothing to correct.',
-        input.trim(),
-        { maxTokens: 1500 }
-      );
-      const parsed = parseJSONLoose(text);
-      setResult(parsed);
-      setSelected({ grammar: true, main: true, 0: true, 1: true, 2: true, 3: true });
-      const existing = categories.find((c) => c.name.toLowerCase() === (parsed.suggestedCategory || "").toLowerCase());
-      setCategory(existing ? existing.id : "__new__" + (parsed.suggestedCategory || ""));
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function addSelected() {
-    if (!result) return;
-    let catId = category;
-    if (category.startsWith("__new__")) catId = addCategory(category.replace("__new__", "") || "New grammar point");
-    const toAdd = [];
-    if (selected.grammar) {
-      toAdd.push({
-        type: "grammar",
-        front: result.grammarName,
-        back: result.explanation,
-        notes: "Example: " + result.mainExample.da + " — " + result.mainExample.en,
-        category: catId,
-        examples: result.examples,
-      });
-    }
-    if (selected.main) toAdd.push({ type: "sentence", front: result.mainExample.da, back: result.mainExample.en, category: catId });
-    result.examples.forEach((ex, i) => {
-      if (selected[i]) toAdd.push({ type: "sentence", front: ex.da, back: ex.en, category: catId });
-    });
-    if (toAdd.length === 0) return;
-    addCards(toAdd);
-    setResult(null);
-    setInput("");
-  }
-
-  function clearAll() {
-    setInput("");
-    setResult(null);
-    setSelected({});
-    setError("");
-  }
-
-  return (
-    <div>
-      {(input || result) && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-          <button
-            onClick={clearAll}
-            style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "var(--muted)", fontFamily: "var(--sans)", fontSize: 12, cursor: "pointer", padding: 4 }}
-          >
-            <Icon.Trash2 size={12} /> Clear
-          </button>
-        </div>
-      )}
-      <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
-        Type a sentence you're trying to say or understand — in English or Danish — and get the grammar rule behind it plus more examples.
-      </div>
-      <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder='e.g. "if I could, I would" or "hvis jeg kunne, ville jeg"' style={{ ...inputStyle, minHeight: 70 }} />
-      <button
-        onClick={analyze}
-        disabled={loading}
-        style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 7 }}
-      >
-        {loading ? <Icon.Loader2 size={15} className="spin" /> : <Icon.Wand2 size={15} />}
-        {loading ? loadingCopy(engine) : "Analyze sentence"}
-      </button>
-
-      <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
-
-      {result && (
-        <CenteredOverlay onClose={() => setResult(null)} maxWidth={460}>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-            <button onClick={() => setResult(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-              <Icon.X size={18} />
-            </button>
-          </div>
-          {result.correctionNote && (
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "flex-start",
-                background: "#FBECE6",
-                border: "1px solid var(--rust)",
-                borderRadius: 8,
-                padding: "9px 11px",
-                marginBottom: 12,
-              }}
-            >
-              <Icon.HelpCircle size={15} color="var(--rust)" style={{ flexShrink: 0, marginTop: 1 }} />
-              <span style={{ fontFamily: "var(--sans)", fontSize: 13, lineHeight: 1.45, color: "var(--rust)" }}>{result.correctionNote}</span>
-            </div>
-          )}
-          <div style={{ fontFamily: "var(--serif)", fontSize: 17, marginBottom: 6 }}>{result.grammarName}</div>
-          <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 10 }}>{result.explanation}</div>
-
-          <label style={rowCheck}>
-            <input type="checkbox" checked={!!selected.grammar} onChange={(e) => setSelected({ ...selected, grammar: e.target.checked })} />
-            <span style={{ fontFamily: "var(--sans)", fontSize: 12.5 }}>Save this as a grammar card</span>
-          </label>
-
-          <div style={{ borderTop: "1px solid var(--line)", margin: "10px 0", paddingTop: 10 }}>
-            <label style={rowCheck}>
-              <input type="checkbox" checked={!!selected.main} onChange={(e) => setSelected({ ...selected, main: e.target.checked })} />
-              <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
-                <b style={{ color: "var(--terracotta)" }}>{result.mainExample.da}</b> —{" "}
-                <span style={{ color: "var(--sage)" }}>{result.mainExample.en}</span>
-              </span>
-            </label>
-            {result.examples.map((ex, i) => (
-              <label key={i} style={rowCheck}>
-                <input type="checkbox" checked={!!selected[i]} onChange={(e) => setSelected({ ...selected, [i]: e.target.checked })} />
-                <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
-                  <span style={{ color: "var(--terracotta)" }}>{ex.da}</span> —{" "}
-                  <span style={{ color: "var(--sage)" }}>{ex.en}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-
-          <Field label="Category">
-            <CategoryPicker
-              categories={categories}
-              value={category.startsWith("__new__") ? "" : category}
-              onChange={setCategory}
-              allowNew
-              onAddCategory={(name) => addCategory(name)}
-            />
-            {category.startsWith("__new__") && (
-              <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--fjord)", marginTop: 4 }}>
-                Will create new category: {category.replace("__new__", "")}
-              </div>
-            )}
-          </Field>
-
-          <button onClick={addSelected} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 4 }}>
-            Add selected to deck
-          </button>
-        </CenteredOverlay>
-      )}
-    </div>
-  );
-}
 
 // ---------- Article vocabulary panel ----------
 
 function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSettings }) {
   const [text, setText] = useState("");
+
+  // Translate (quick lookup)
+  const [lookupResult, setLookupResult] = useState(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState("");
+  const [lookupCategory, setLookupCategory] = useState(categories[0]?.id || "");
+
+  // Analyze sentence — grammar breakdown, merged in from what used to be
+  // its own separate tab. Lives here now so it can share one text box
+  // with Translate and Extract text, instead of needing its own.
+  const [sentenceLoading, setSentenceLoading] = useState(false);
+  const [sentenceError, setSentenceError] = useState("");
+  const [sentenceResult, setSentenceResult] = useState(null);
+  const [sentenceSelected, setSentenceSelected] = useState({});
+  const [pointCategory, setPointCategory] = useState({});
+
+  // Extract text — pulls out vocabulary worth learning from a passage.
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [selected, setSelected] = useState({});
   const [itemCategory, setItemCategory] = useState({}); // da word -> category id, individually suggested per word
   const [error, setError] = useState("");
-
-  const [lookupResult, setLookupResult] = useState(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupError, setLookupError] = useState("");
-  const [lookupCategory, setLookupCategory] = useState(categories[0]?.id || "");
 
   // Word-insight popup — same deep-dive (forms, related words) as the
   // lightbulb on a study card. Only makes sense once the translated
@@ -3783,12 +3975,20 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setLookupResult(null);
     try {
       const reply = await callAI(
-        "You translate Danish or English text for a language learner — anything from a single word to a longer passage. Auto-detect which language the input is in and give a natural, fluent translation in the other language. The translation must be ONLY in the target language — never repeat or include the original alongside it. If it's a single Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
+        "You translate between Danish and English for a language learner. First determine whether the input text is Danish or English — do not assume it's always Danish. Then: if the input is Danish, put that Danish text in \"da\" and your English translation in \"en\"; if the input is English, put your Danish translation in \"da\" and that English text in \"en\". This must work correctly in both directions — translating an English input into Danish is just as important as the reverse. Never invent or substitute a different word that merely looks similar to the input — if the input might contain a typo, translate your single best real-word interpretation of what was actually typed, not some other unrelated word. The translation side must be ONLY in its target language — never repeat or include the original alongside it. If it's a single Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         'Translate this: "' + text.trim() + '". Respond ONLY with JSON, no other text: {"da": "...", "en": "..."}',
         { maxTokens: 1500 }
       );
       const parsed = parseJSONLoose(reply);
-      setLookupResult({ da: cleanTranslation(parsed.da), en: cleanTranslation(parsed.en) });
+      const da = cleanTranslation(parsed.da);
+      const en = cleanTranslation(parsed.en);
+      // If both sides came back the same, the model didn't actually
+      // translate — it just echoed the input into both fields. Treat
+      // that as a failure rather than silently showing a broken result.
+      if (da && en && da.trim().toLowerCase() === en.trim().toLowerCase()) {
+        throw new Error("TRANSLATION_DIDNT_HAPPEN");
+      }
+      setLookupResult({ da, en });
     } catch (e) {
       setLookupError(apiErrorMessage(e));
     } finally {
@@ -3808,6 +4008,74 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setLookupResult(null);
   }
 
+  async function analyzeSentence() {
+    if (!text.trim()) return;
+    setSentenceLoading(true);
+    setSentenceError("");
+    setSentenceResult(null);
+    try {
+      const categoryNames = categories.map((c) => c.name).join(", ");
+      const reply = await callAI(
+        "You are a patient Danish tutor for an intermediate, self-taught learner who has foundational grammar gaps. The user will give you text in English or Danish — anywhere from a single sentence to a longer passage — that they're trying to figure out how to say or understand correctly. " +
+          "Cover the WHOLE input, not just the first clause or the first thing that stands out — a longer passage usually has several distinct grammar points worth explaining (word order, tense, a specific construction, an idiom), and you should identify each of them separately rather than picking just one and ignoring the rest. A single short sentence will naturally still just yield one. " +
+          "If what they wrote in Danish has a grammar mistake anywhere in it, you must catch it and clearly point out what was wrong and why, referencing the specific part that was incorrect — don't silently correct it without mentioning the error. If they wrote in English, or their Danish was already correct, leave the correction note empty. " +
+          "For each distinct grammar point you identify: give it a short name, explain it in plain, concise English (2-4 sentences, no jargon overload), give the correct Danish sentence that illustrates it (drawn from their input where it fits, or a new one otherwise) with its English translation, provide exactly 2 more example sentences using the same structure in different contexts, and suggest the single best-fitting category for it — prefer an existing category if one genuinely fits. " +
+          "Existing categories to prefer if one fits: " +
+          (categoryNames || "(none yet)") +
+          '. \n\nRespond ONLY with JSON in this exact shape, no other text: {"correctionNote": "...", "grammarPoints": [{"grammarName": "...", "explanation": "...", "mainExample": {"da": "...", "en": "..."}, "examples": [{"da":"...","en":"..."}, {"da":"...","en":"..."}], "suggestedCategory": "..."}]} — correctionNote should be an empty string when there was nothing to correct.',
+        text.trim(),
+        { maxTokens: 2200 }
+      );
+      const parsed = parseJSONLoose(reply);
+      const points = parsed.grammarPoints || [];
+      if (points.length === 0) {
+        setSentenceError("Couldn't identify a clear grammar point in that — try rephrasing, or adding a bit more context.");
+        return;
+      }
+      setSentenceResult({ correctionNote: parsed.correctionNote || "", grammarPoints: points });
+      const initialSelected = {};
+      const initialCategory = {};
+      points.forEach((p, i) => {
+        initialSelected[i] = { grammar: true, main: true, examples: { 0: true, 1: true } };
+        const existing = categories.find((c) => c.name.toLowerCase() === (p.suggestedCategory || "").toLowerCase());
+        initialCategory[i] = existing ? existing.id : "__new__" + (p.suggestedCategory || "");
+      });
+      setSentenceSelected(initialSelected);
+      setPointCategory(initialCategory);
+    } catch (e) {
+      setSentenceError(apiErrorMessage(e));
+    } finally {
+      setSentenceLoading(false);
+    }
+  }
+
+  function addSentenceSelected() {
+    if (!sentenceResult) return;
+    const toAdd = [];
+    sentenceResult.grammarPoints.forEach((point, i) => {
+      const sel = sentenceSelected[i] || {};
+      let catId = pointCategory[i] || "";
+      if (catId.startsWith("__new__")) catId = addCategory(catId.replace("__new__", "") || "New grammar point");
+      if (sel.grammar) {
+        toAdd.push({
+          type: "grammar",
+          front: point.grammarName,
+          back: point.explanation,
+          notes: "Example: " + point.mainExample.da + " — " + point.mainExample.en,
+          category: catId,
+          examples: point.examples,
+        });
+      }
+      if (sel.main) toAdd.push({ type: "sentence", front: point.mainExample.da, back: point.mainExample.en, category: catId });
+      (point.examples || []).forEach((ex, j) => {
+        if (sel.examples && sel.examples[j]) toAdd.push({ type: "sentence", front: ex.da, back: ex.en, category: catId });
+      });
+    });
+    if (toAdd.length === 0) return;
+    addCards(toAdd);
+    setSentenceResult(null);
+  }
+
   async function analyzeText() {
     if (!text.trim()) return;
     setAnalyzing(true);
@@ -3816,7 +4084,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, give a natural, fluent English translation of the full passage. Then briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
+        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, give a natural, fluent English translation of the full passage. Then briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech as used in this passage before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
         "Text:\n" +
           text.slice(0, 3000) +
           "\n\nExisting categories to prefer if one fits: " +
@@ -3871,6 +4139,10 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setText("");
     setLookupResult(null);
     setLookupError("");
+    setSentenceResult(null);
+    setSentenceSelected({});
+    setPointCategory({});
+    setSentenceError("");
     setAnalysis(null);
     setSelected({});
     setItemCategory({});
@@ -3881,7 +4153,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
 
   return (
     <div>
-      {(text || lookupResult || analysis) && (
+      {(text || lookupResult || sentenceResult || analysis) && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
           <button
             onClick={clearAll}
@@ -3892,35 +4164,45 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
         </div>
       )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
-        Type or paste anything — a word, a phrase, or a longer passage — then translate it, or pull out the key
-        vocabulary worth learning from it.
+        Type or paste anything — a word, a sentence, or a longer passage — then translate it, get the grammar
+        explained, or pull out the key vocabulary worth learning from it.
       </div>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder='e.g. "hyggelig", or paste a longer passage…'
+        placeholder='e.g. "hyggelig", "hvis jeg kunne, ville jeg", or a longer passage…'
         style={{ ...inputStyle, minHeight: 100 }}
       />
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
         <button
           onClick={translate}
           disabled={!text.trim() || lookupLoading}
-          style={{ ...smallBtn("var(--fjord)"), flex: 1, padding: "11px", fontSize: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, opacity: text.trim() ? 1 : 0.5 }}
+          style={{ ...smallBtn("var(--fjord)"), flex: 1, padding: "9px 4px", fontSize: 12.5, display: "flex", justifyContent: "center", alignItems: "center", gap: 5, opacity: text.trim() ? 1 : 0.5 }}
         >
-          {lookupLoading ? <Icon.Loader2 size={14} className="spin" /> : null}
+          {lookupLoading ? <Icon.Loader2 size={12} className="spin" /> : null}
           {lookupLoading ? loadingCopy(engine) : "Translate"}
+        </button>
+        <button
+          onClick={analyzeSentence}
+          disabled={!text.trim() || sentenceLoading}
+          style={{ ...smallBtn("#8C6FA0"), flex: 1, padding: "9px 4px", fontSize: 12.5, display: "flex", justifyContent: "center", alignItems: "center", gap: 5, opacity: text.trim() ? 1 : 0.5 }}
+        >
+          {sentenceLoading ? <Icon.Loader2 size={12} className="spin" /> : null}
+          {sentenceLoading ? loadingCopy(engine) : "Analyze sentence"}
         </button>
         <button
           onClick={analyzeText}
           disabled={!text.trim() || analyzing}
-          style={{ ...smallBtn("var(--rust)"), flex: 1, padding: "11px", fontSize: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, opacity: text.trim() ? 1 : 0.5 }}
+          style={{ ...smallBtn("var(--rust)"), flex: 1, padding: "9px 4px", fontSize: 12.5, display: "flex", justifyContent: "center", alignItems: "center", gap: 5, opacity: text.trim() ? 1 : 0.5 }}
         >
-          {analyzing ? <Icon.Loader2 size={14} className="spin" /> : <Icon.Wand2 size={14} />}
-          {analyzing ? loadingCopy(engine) : "Extract vocabulary"}
+          {analyzing ? <Icon.Loader2 size={12} className="spin" /> : null}
+          {analyzing ? loadingCopy(engine) : "Extract text"}
         </button>
       </div>
 
       <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
+      <AIErrorNote message={sentenceError} onOpenSettings={onOpenSettings} />
+      <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
 
       {lookupResult && (
         <div style={{ position: "relative", marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
@@ -3934,17 +4216,26 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
             <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            {lookupIsWordLike ? (
-              <button
-                onClick={() => openInsight(lookupResult.da, lookupResult.en)}
-                aria-label="Explore related words"
-                style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
-              >
-                <Icon.Lightbulb size={18} />
-              </button>
-            ) : (
-              <span />
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {speechSupported() && (
+                <button
+                  onClick={() => speakDanish(lookupResult.da)}
+                  aria-label="Pronounce this"
+                  style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                >
+                  <Icon.Volume2 size={18} />
+                </button>
+              )}
+              {lookupIsWordLike && (
+                <button
+                  onClick={() => openInsight(lookupResult.da, lookupResult.en)}
+                  aria-label="Explore related words"
+                  style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                >
+                  <Icon.Lightbulb size={18} />
+                </button>
+              )}
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <select
                 value={lookupCategory.startsWith("__new__") ? "" : lookupCategory}
@@ -4002,14 +4293,106 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
               ) : insightError ? (
                 <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
               ) : (
-                <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightText}</div>
+                <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightText)}</div>
               )}
             </CenteredOverlay>
           )}
         </div>
       )}
 
-      <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
+      {sentenceResult && (
+        <CenteredOverlay onClose={() => setSentenceResult(null)} maxWidth={460}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+            <button onClick={() => setSentenceResult(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+              <Icon.X size={18} />
+            </button>
+          </div>
+          {sentenceResult.correctionNote && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+                background: "#FBECE6",
+                border: "1px solid var(--rust)",
+                borderRadius: 8,
+                padding: "9px 11px",
+                marginBottom: 12,
+              }}
+            >
+              <Icon.HelpCircle size={15} color="var(--rust)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontFamily: "var(--sans)", fontSize: 13, lineHeight: 1.45, color: "var(--rust)" }}>{renderInlineMarkdown(sentenceResult.correctionNote)}</span>
+            </div>
+          )}
+
+          {sentenceResult.grammarPoints.map((point, i) => (
+            <div key={i} style={{ borderTop: i > 0 ? "1px solid var(--line)" : "none", paddingTop: i > 0 ? 16 : 0, marginTop: i > 0 ? 16 : 0 }}>
+              <div style={{ fontFamily: "var(--serif)", fontSize: 17, marginBottom: 6 }}>{point.grammarName}</div>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 10 }}>{renderInlineMarkdown(point.explanation)}</div>
+
+              <label style={rowCheck}>
+                <input
+                  type="checkbox"
+                  checked={!!(sentenceSelected[i] && sentenceSelected[i].grammar)}
+                  onChange={(e) => setSentenceSelected({ ...sentenceSelected, [i]: { ...sentenceSelected[i], grammar: e.target.checked } })}
+                />
+                <span style={{ fontFamily: "var(--sans)", fontSize: 12.5 }}>Save this as a grammar card</span>
+              </label>
+
+              <div style={{ borderTop: "1px solid var(--line)", margin: "10px 0", paddingTop: 10 }}>
+                <label style={rowCheck}>
+                  <input
+                    type="checkbox"
+                    checked={!!(sentenceSelected[i] && sentenceSelected[i].main)}
+                    onChange={(e) => setSentenceSelected({ ...sentenceSelected, [i]: { ...sentenceSelected[i], main: e.target.checked } })}
+                  />
+                  <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
+                    <b style={{ color: "var(--terracotta)" }}>{point.mainExample.da}</b> —{" "}
+                    <span style={{ color: "var(--sage)" }}>{point.mainExample.en}</span>
+                  </span>
+                </label>
+                {(point.examples || []).map((ex, j) => (
+                  <label key={j} style={rowCheck}>
+                    <input
+                      type="checkbox"
+                      checked={!!(sentenceSelected[i] && sentenceSelected[i].examples && sentenceSelected[i].examples[j])}
+                      onChange={(e) =>
+                        setSentenceSelected({
+                          ...sentenceSelected,
+                          [i]: { ...sentenceSelected[i], examples: { ...(sentenceSelected[i] && sentenceSelected[i].examples), [j]: e.target.checked } },
+                        })
+                      }
+                    />
+                    <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
+                      <span style={{ color: "var(--terracotta)" }}>{ex.da}</span> —{" "}
+                      <span style={{ color: "var(--sage)" }}>{ex.en}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <Field label="Category">
+                <CategoryPicker
+                  categories={categories}
+                  value={(pointCategory[i] || "").startsWith("__new__") ? "" : pointCategory[i] || ""}
+                  onChange={(v) => setPointCategory({ ...pointCategory, [i]: v })}
+                  allowNew
+                  onAddCategory={(name) => addCategory(name)}
+                />
+                {(pointCategory[i] || "").startsWith("__new__") && (
+                  <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--fjord)", marginTop: 4 }}>
+                    Will create new category: {(pointCategory[i] || "").replace("__new__", "")}
+                  </div>
+                )}
+              </Field>
+            </div>
+          ))}
+
+          <button onClick={addSentenceSelected} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 16 }}>
+            Add selected to deck
+          </button>
+        </CenteredOverlay>
+      )}
 
       {analysis && (
         <CenteredOverlay onClose={() => setAnalysis(null)} maxWidth={460}>
@@ -4021,10 +4404,10 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
           {analysis.fullTranslation && !lookupResult && (
             <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}>
               <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>Translation</div>
-              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, fontStyle: "italic", color: "var(--sage)" }}>{analysis.fullTranslation}</div>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, fontStyle: "italic", color: "var(--sage)" }}>{renderInlineMarkdown(analysis.fullTranslation)}</div>
             </div>
           )}
-          <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 14 }}>{analysis.grammarNotes}</div>
+          <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 14 }}>{renderInlineMarkdown(analysis.grammarNotes)}</div>
 
           <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
             <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>
@@ -4130,7 +4513,7 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
       const mediaType = file.type || "image/jpeg";
       const categoryNames = categories.map((c) => c.name).join(", ");
       const system =
-        "You help an intermediate self-taught Danish learner build flashcards from photos of text (book pages, signs, notes, apps). First, briefly note any grammar or sentence structures worth pointing out in this specific text (2-3 sentences, plain English) — skip this if the image is just a word list with nothing notable. Then extract every distinct Danish word or sentence visible, with a natural English translation for each, and the single best-fitting category for each item individually (e.g. by part of speech or topic) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different items usually mix nouns, verbs, and other parts of speech, so don't give them all the same category. Keep the vocabulary list focused and useful — skip page numbers, headers, or noise. " +
+        "You help an intermediate self-taught Danish learner build flashcards from photos of text (book pages, signs, notes, apps). First, briefly note any grammar or sentence structures worth pointing out in this specific text (2-3 sentences, plain English) — skip this if the image is just a word list with nothing notable. Then extract every distinct Danish word or sentence visible, with a natural English translation for each, and the single best-fitting category for each item individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech as used here before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different items usually mix nouns, verbs, and other parts of speech, so don't give them all the same category. Keep the vocabulary list focused and useful — skip page numbers, headers, or noise. " +
         'Respond ONLY with JSON, no other text: {"grammarNotes": "...", "items": [{"danish": "...", "english": "...", "type": "word", "category": "..."}]} where "type" is "word" for single words/short phrases and "sentence" for full sentences. Use an empty string for grammarNotes if there is nothing worth noting. ' +
         "Existing categories to prefer if one fits: " +
         (categoryNames || "(none yet)");
@@ -4282,7 +4665,7 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
           </div>
           {grammarNotes && (
             <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid var(--line)" }}>
-              {grammarNotes}
+              {renderInlineMarkdown(grammarNotes)}
             </div>
           )}
           <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>
