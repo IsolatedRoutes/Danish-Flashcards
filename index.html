@@ -1285,6 +1285,18 @@ function DanishFlashcards() {
     [categories, persistCategories]
   );
 
+  // Wholesale replace, for restoring an exported backup — bypasses the
+  // normal incremental add/duplicate-check path since a restore should
+  // just put back exactly what was exported.
+  const replaceAllData = useCallback(
+    async (newCards, newCategories) => {
+      const catResult = await persistCategories(newCategories);
+      const cardResult = await persistCards(newCards);
+      return catResult.ok && cardResult.ok;
+    },
+    [persistCategories, persistCards]
+  );
+
   const addCards = useCallback(
     async (newCards) => {
       // Central choke point for every card-adding feature (manual, Chat,
@@ -1401,6 +1413,8 @@ function DanishFlashcards() {
             deleteCard={deleteCard}
             persistCategories={persistCategories}
             addCards={addCards}
+            replaceAllData={replaceAllData}
+            showToast={showToast}
             onOpenSettings={() => setShowSettings(true)}
           />
         )}
@@ -2168,7 +2182,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
 }
 
 
-function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards, onOpenSettings }) {
+function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards, replaceAllData, showToast, onOpenSettings }) {
   const [catFilter, setCatFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
@@ -2196,6 +2210,49 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
     setStarredOnly(false);
     setKnownFilter("all");
     setOriginFilter("all");
+  }
+
+  function exportDeck() {
+    const payload = { exportedAt: new Date().toISOString(), cards, categories };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = "dansk-backup-" + date + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("Backup file downloaded");
+  }
+
+  const importInputRef = useRef(null);
+
+  function triggerImport() {
+    if (importInputRef.current) importInputRef.current.click();
+  }
+
+  async function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow picking the same file again later
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed.cards) || !Array.isArray(parsed.categories)) {
+        showToast("That doesn't look like a Dansk backup file");
+        return;
+      }
+      const confirmed = window.confirm
+        ? window.confirm("This replaces everything currently in your deck (" + cards.length + " cards) with the " + parsed.cards.length + " cards from this backup. Continue?")
+        : true;
+      if (!confirmed) return;
+      const ok = await replaceAllData(parsed.cards, parsed.categories);
+      showToast(ok ? "Backup restored (" + parsed.cards.length + " cards)" : "Couldn't restore the backup");
+    } catch (e) {
+      showToast("Couldn't read that file — is it a Dansk backup?");
+    }
   }
 
   const filtered = cards.filter((c) => {
@@ -2392,6 +2449,22 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
               Clear filters
             </button>
           )}
+
+          <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 14 }}>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Backup</div>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
+              Save a copy of your whole deck as a file, or restore one on another device or browser.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={exportDeck} style={{ ...smallBtn("var(--fjord)"), flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <Icon.Download size={14} /> Export
+              </button>
+              <button onClick={triggerImport} style={{ ...smallBtn("#A8A395"), flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <Icon.Upload size={14} /> Import
+              </button>
+              <input ref={importInputRef} type="file" accept="application/json,.json" onChange={handleImportFile} style={{ display: "none" }} />
+            </div>
+          </div>
         </div>
       )}
 
