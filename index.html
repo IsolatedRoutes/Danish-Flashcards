@@ -686,6 +686,62 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Shared by every floating popover in the app (word-insight, ask-a-word,
+// AI settings, backup). Uses position: fixed with pixel coordinates
+// computed directly from the trigger's real on-screen position, rather
+// than a CSS percentage anchored to some ancestor — that's deliberate:
+// fixed positioning escapes any ancestor's own scrolling/clipping
+// behavior, which is the likely cause of a popover still being cut off
+// inside an embedded preview (like Claude's own in-app artifact view)
+// even after its height was correctly capped. Recomputes on open, and on
+// any resize or scroll so it stays anchored to the trigger.
+function usePopoverPlacement(isOpen, anchorRef) {
+  const [style, setStyle] = useState(null);
+  useEffect(() => {
+    if (!isOpen || !anchorRef.current) {
+      setStyle(null);
+      return;
+    }
+    const measure = () => {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      const vv = window.visualViewport;
+      const viewportWidth = vv ? vv.width : window.innerWidth;
+      const viewportHeight = vv ? vv.height : window.innerHeight;
+      const margin = 10;
+      const spaceBelow = viewportHeight - rect.bottom - margin;
+      const spaceAbove = rect.top - margin;
+      const openBelow = spaceBelow >= 180 || spaceBelow >= spaceAbove;
+      const maxHeight = Math.max(120, openBelow ? spaceBelow : spaceAbove);
+      setStyle({
+        position: "fixed",
+        left: Math.max(margin, rect.left),
+        right: Math.max(margin, viewportWidth - rect.right),
+        [openBelow ? "top" : "bottom"]: openBelow ? rect.bottom + 6 : viewportHeight - rect.top + 6,
+        maxHeight,
+      });
+    };
+    measure();
+    const vv = window.visualViewport;
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    if (vv) {
+      vv.addEventListener("resize", measure);
+      vv.addEventListener("scroll", measure);
+    }
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      if (vv) {
+        vv.removeEventListener("resize", measure);
+        vv.removeEventListener("scroll", measure);
+      }
+    };
+  }, [isOpen, anchorRef]);
+  return style;
+}
+
+
 function parseJSONLoose(text) {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -1192,6 +1248,9 @@ function DanishFlashcards() {
   const [toast, setToast] = useState(null);
   const [engine, setEngine] = useState(undefined);
   const [showSettings, setShowSettings] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
+  const headerRef = useRef(null);
+  const headerPopoverPlacement = usePopoverPlacement(showSettings || showBackup, headerRef);
 
   const refreshEngine = useCallback(() => {
     getAIEngine().then((e) => setEngine(e));
@@ -1442,7 +1501,65 @@ function DanishFlashcards() {
 
   return (
     <Shell>
-      <Header cardCount={cards.length} onOpenSettings={() => setShowSettings(true)} />
+      <div ref={headerRef} style={{ position: "relative" }}>
+        <Header
+          onOpenSettings={() => setShowSettings((s) => !s)}
+          onOpenBackup={() => setShowBackup((s) => !s)}
+          settingsOpen={showSettings}
+          backupOpen={showBackup}
+        />
+        {showSettings && headerPopoverPlacement && (
+          <>
+            <div className="popover-backdrop" onClick={() => setShowSettings(false)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 39 }} />
+            <div
+              className="popover"
+              style={{
+                ...headerPopoverPlacement,
+                zIndex: 40,
+                background: "var(--card)",
+                border: "1px solid var(--line)",
+                borderRadius: 12,
+                padding: 16,
+                overflowY: "auto",
+              }}
+            >
+              <AISettingsPanel
+                onClose={(chosenEngine) => {
+                  setShowSettings(false);
+                  if (chosenEngine) {
+                    // Trust what was just chosen in this session rather than
+                    // re-reading storage, which can be unreliable in restricted
+                    // preview contexts (e.g. iOS Quick Look) even right after a
+                    // successful write.
+                    setEngine(chosenEngine);
+                  } else {
+                    refreshEngine();
+                  }
+                }}
+              />
+            </div>
+          </>
+        )}
+        {showBackup && headerPopoverPlacement && (
+          <>
+            <div className="popover-backdrop" onClick={() => setShowBackup(false)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 39 }} />
+            <div
+              className="popover"
+              style={{
+                ...headerPopoverPlacement,
+                zIndex: 40,
+                background: "var(--card)",
+                border: "1px solid var(--line)",
+                borderRadius: 12,
+                padding: 16,
+                overflowY: "auto",
+              }}
+            >
+              <BackupPanel cards={cards} categories={categories} replaceAllData={replaceAllData} showToast={showToast} onClose={() => setShowBackup(false)} />
+            </div>
+          </>
+        )}
+      </div>
       <div style={{ padding: "0 16px calc(96px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "study" && <StudyView cards={cards} categories={categories} updateCard={updateCard} onOpenSettings={() => setShowSettings(true)} showToast={showToast} engine={engine} />}
         {tab === "library" && (
@@ -1453,8 +1570,6 @@ function DanishFlashcards() {
             deleteCard={deleteCard}
             persistCategories={persistCategories}
             addCards={addCards}
-            replaceAllData={replaceAllData}
-            showToast={showToast}
             onOpenSettings={() => setShowSettings(true)}
           />
         )}
@@ -1472,34 +1587,6 @@ function DanishFlashcards() {
       </div>
       <TabBar tab={tab} setTab={setTab} />
       {toast && <Toast msg={toast} />}
-      {showSettings && (
-        <div
-          className="sheet-backdrop"
-          onClick={() => setShowSettings(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 60 }}
-        >
-          <div
-            className="sheet-content"
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "82vh", overflowY: "auto" }}
-          >
-            <AISettingsPanel
-              onClose={(chosenEngine) => {
-                setShowSettings(false);
-                if (chosenEngine) {
-                  // Trust what was just chosen in this session rather than
-                  // re-reading storage, which can be unreliable in restricted
-                  // preview contexts (e.g. iOS Quick Look) even right after a
-                  // successful write.
-                  setEngine(chosenEngine);
-                } else {
-                  refreshEngine();
-                }
-              }}
-            />
-          </div>
-        </div>
-      )}
     </Shell>
   );
 }
@@ -1536,10 +1623,10 @@ function Shell({ children }) {
         @keyframes cardEnterBack { from { opacity: 0.25; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
         .card-enter-next { animation: cardEnterNext 0.4s ease-out; }
         .card-enter-back { animation: cardEnterBack 0.4s ease-out; }
-        @keyframes sheetBackdropIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes sheetSlideIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        .sheet-backdrop { animation: sheetBackdropIn 0.22s ease-out; }
-        .sheet-content { animation: sheetSlideIn 0.32s cubic-bezier(0.32, 0.72, 0, 1); }
+        @keyframes popoverIn { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .popover { animation: popoverIn 0.16s ease-out; box-shadow: 0 10px 28px rgba(35,39,42,0.16); }
+        @keyframes backdropFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .popover-backdrop { animation: backdropFadeIn 0.16s ease-out; }
         * { box-sizing: border-box; }
         html, body { overscroll-behavior-x: none; }
         input, textarea, select { font-family: var(--sans); }
@@ -1552,25 +1639,32 @@ function Shell({ children }) {
   );
 }
 
-function Header({ cardCount, onOpenSettings }) {
+function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen }) {
   return (
     <div style={{ padding: "22px 18px 14px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontFamily: "var(--serif)", fontSize: 26, margin: 0, fontWeight: 400, letterSpacing: 0.2 }}>
           Dansk<span style={{ color: "var(--rust)" }}>.</span>
         </h1>
-        <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>
-          {cardCount} card{cardCount === 1 ? "" : "s"}
-        </span>
-      </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
-        <button
-          onClick={onOpenSettings}
-          style={{ border: "none", background: "none", color: "var(--muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontFamily: "var(--sans)", fontSize: 11.5, padding: 0 }}
-        >
-          <Icon.Key size={12} />
-          AI settings
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <button
+            onClick={onOpenBackup}
+            aria-label="Backup and sync"
+            style={{ border: "none", background: "none", color: backupOpen ? "var(--fjord)" : "var(--muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontFamily: "var(--sans)", fontSize: 11.5, fontWeight: backupOpen ? 700 : 400, padding: 0 }}
+          >
+            <Icon.Download size={12} />
+            Backup
+            {backupOpen ? <Icon.ChevronUp size={11} /> : null}
+          </button>
+          <button
+            onClick={onOpenSettings}
+            style={{ border: "none", background: "none", color: settingsOpen ? "var(--fjord)" : "var(--muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontFamily: "var(--sans)", fontSize: 11.5, fontWeight: settingsOpen ? 700 : 400, padding: 0 }}
+          >
+            <Icon.Key size={12} />
+            AI settings
+            {settingsOpen ? <Icon.ChevronUp size={11} /> : null}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1666,6 +1760,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const [dragging, setDragging] = useState(false);
   const [exiting, setExiting] = useState(null); // null | "left" | "right"
   const gesture = useRef({ startX: 0, startY: 0, active: false });
+  const cardAreaRef = useRef(null);
 
   // Word-insight popup — cached per card so revisiting one in the same
   // session doesn't re-spend a request.
@@ -1681,6 +1776,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const [askAnswer, setAskAnswer] = useState("");
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
+  const studyPopoverPlacement = usePopoverPlacement(!!insightFor || !!askFor, cardAreaRef);
 
   // The session's card order is frozen when it starts (or when a filter
   // changes) so marking a card known mid-session doesn't yank it out from
@@ -1849,19 +1945,17 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const starredInSessionCount = sessionCards.filter((c) => c.starred).length;
 
   return (
-    <div>
+    <div ref={cardAreaRef} style={{ position: "relative" }}>
       <div style={{ marginBottom: 10 }}>
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <Pill color="var(--rust)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
           ★ Starred only
         </Pill>
         <Pill color="#4C8A5E" active={includeKnown} onClick={() => setIncludeKnown(!includeKnown)}>
           ✓ Include known
         </Pill>
-      </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
         <button
           onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
           style={{
@@ -1876,6 +1970,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
             fontSize: 12,
             color: "var(--muted)",
             cursor: "pointer",
+            marginLeft: "auto",
           }}
         >
           {langDir === "da-first" ? (
@@ -1942,7 +2037,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
       ) : (
         <>
           <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Card {idx + 1} of {poolIds.length}
+            Card {idx + 1} of {poolIds.length} · {knownNowCount} known
           </div>
           <div
             key={current.id}
@@ -2130,29 +2225,18 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
         </>
       )}
 
-      {insightFor && (
-        <div
-          className="sheet-backdrop"
-          onClick={() => setInsightFor(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(35,39,42,0.55)",
-            display: "flex",
-            alignItems: "flex-end",
-            zIndex: 50,
-          }}
-        >
+      {insightFor && studyPopoverPlacement && (
+        <>
+          <div className="popover-backdrop" onClick={() => setInsightFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 29 }} />
           <div
-            className="sheet-content"
-            onClick={(e) => e.stopPropagation()}
+            className="popover"
             style={{
+              ...studyPopoverPlacement,
+              zIndex: 30,
               background: "var(--card)",
-              borderRadius: "16px 16px 0 0",
-              padding: 20,
-              width: "100%",
-              minHeight: "58vh",
-              maxHeight: "80vh",
+              border: "1px solid var(--line)",
+              borderRadius: 12,
+              padding: 16,
               overflowY: "auto",
             }}
           >
@@ -2176,19 +2260,23 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
               </div>
             )}
           </div>
-        </div>
+        </>
       )}
 
-      {askFor && (
-        <div
-          className="sheet-backdrop"
-          onClick={() => setAskFor(null)}
-          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
-        >
+      {askFor && studyPopoverPlacement && (
+        <>
+          <div className="popover-backdrop" onClick={() => setAskFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 29 }} />
           <div
-            className="sheet-content"
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
+            className="popover"
+            style={{
+              ...studyPopoverPlacement,
+              zIndex: 30,
+              background: "var(--card)",
+              border: "1px solid var(--line)",
+              borderRadius: 12,
+              padding: 16,
+              overflowY: "auto",
+            }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
@@ -2215,14 +2303,14 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
               <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{askAnswer}</div>
             )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 }
 
 
-function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards, replaceAllData, showToast, onOpenSettings }) {
+function LibraryView({ cards, categories, updateCard, deleteCard, persistCategories, addCards, onOpenSettings }) {
   const [catFilter, setCatFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
@@ -2236,6 +2324,8 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
   const [insightCache, setInsightCache] = useState({});
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
+  const insightRowRef = useRef(null);
+  const rowPopoverPlacement = usePopoverPlacement(!!insightFor, insightRowRef);
 
   const activeFilterCount =
     (catFilter !== "all" ? 1 : 0) +
@@ -2250,68 +2340,6 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
     setStarredOnly(false);
     setKnownFilter("all");
     setOriginFilter("all");
-  }
-
-  async function exportDeck() {
-    const payload = { exportedAt: new Date().toISOString(), cards, categories };
-    const date = new Date().toISOString().slice(0, 10);
-    const filename = "dansk-backup-" + date + ".json";
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-
-    // Share the file directly when possible, so the person gets a real
-    // "choose where to save it" prompt (Files, AirDrop, Messages, etc.)
-    // instead of it silently landing wherever the browser's default
-    // downloads location happens to be.
-    if (navigator.share && navigator.canShare) {
-      try {
-        const file = new File([blob], filename, { type: "application/json" });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: "Dansk backup" });
-          return;
-        }
-      } catch (e) {
-        if (e && e.name === "AbortError") return; // they cancelled the share sheet — not a failure
-        // otherwise fall through to the plain download below
-      }
-    }
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast("Backup file downloaded");
-  }
-
-  const importInputRef = useRef(null);
-
-  function triggerImport() {
-    if (importInputRef.current) importInputRef.current.click();
-  }
-
-  async function handleImportFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow picking the same file again later
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed.cards) || !Array.isArray(parsed.categories)) {
-        showToast("That doesn't look like a Dansk backup file");
-        return;
-      }
-      const confirmed = window.confirm
-        ? window.confirm("This replaces everything currently in your deck (" + cards.length + " cards) with the " + parsed.cards.length + " cards from this backup. Continue?")
-        : true;
-      if (!confirmed) return;
-      const ok = await replaceAllData(parsed.cards, parsed.categories);
-      showToast(ok ? "Backup restored (" + parsed.cards.length + " cards)" : "Couldn't restore the backup");
-    } catch (e) {
-      showToast("Couldn't read that file — is it a Dansk backup?");
-    }
   }
 
   const filtered = cards.filter((c) => {
@@ -2508,22 +2536,6 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
               Clear filters
             </button>
           )}
-
-          <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 14 }}>
-            <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Backup</div>
-            <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
-              Save a copy of your whole deck as a file, or restore one on another device or browser.
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={exportDeck} style={{ ...smallBtn("var(--fjord)"), flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <Icon.Download size={14} /> Export
-              </button>
-              <button onClick={triggerImport} style={{ ...smallBtn("#A8A395"), flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <Icon.Upload size={14} /> Import
-              </button>
-              <input ref={importInputRef} type="file" accept="application/json,.json" onChange={handleImportFile} style={{ display: "none" }} />
-            </div>
-          </div>
         </div>
       )}
 
@@ -2553,21 +2565,58 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
               {expandedLetters.has(g.letter) && (
                 <div style={{ marginTop: 8 }}>
                   {g.cards.map((c) => (
-                    <LibraryRow
+                    <div
                       key={c.id}
-                      card={c}
-                      categories={categories}
-                      editing={editingId === c.id}
-                      onEdit={() => setEditingId(editingId === c.id ? null : c.id)}
-                      onSave={(patch) => {
-                        updateCard(c.id, patch);
-                        setEditingId(null);
-                      }}
-                      onToggleStar={() => updateCard(c.id, { starred: !c.starred })}
-                      onToggleKnown={() => updateCard(c.id, { known: !c.known })}
-                      onDelete={() => deleteCard(c.id)}
-                      onExplore={() => openInsight(c)}
-                    />
+                      ref={insightFor === c.id ? insightRowRef : null}
+                      style={{ position: "relative" }}
+                    >
+                      <LibraryRow
+                        card={c}
+                        categories={categories}
+                        editing={editingId === c.id}
+                        onEdit={() => setEditingId(editingId === c.id ? null : c.id)}
+                        onSave={(patch) => {
+                          updateCard(c.id, patch);
+                          setEditingId(null);
+                        }}
+                        onToggleStar={() => updateCard(c.id, { starred: !c.starred })}
+                        onToggleKnown={() => updateCard(c.id, { known: !c.known })}
+                        onDelete={() => deleteCard(c.id)}
+                        onExplore={() => openInsight(c)}
+                      />
+                      {insightFor === c.id && rowPopoverPlacement && (
+                        <>
+                          <div className="popover-backdrop" onClick={() => setInsightFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 19 }} />
+                          <div
+                            className="popover"
+                            style={{
+                              ...rowPopoverPlacement,
+                              zIndex: 20,
+                              background: "var(--card)",
+                              border: "1px solid var(--line)",
+                              borderRadius: 10,
+                              padding: 14,
+                              overflowY: "auto",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                              <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                                <Icon.X size={16} />
+                              </button>
+                            </div>
+                            {insightLoading ? (
+                              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                                <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
+                              </div>
+                            ) : insightError ? (
+                              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+                            ) : (
+                              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightCache[insightFor]}</div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -2577,37 +2626,6 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
       </div>
 
 
-      {insightFor && (
-        <div
-          className="sheet-backdrop"
-          onClick={() => setInsightFor(null)}
-          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
-        >
-          <div
-            className="sheet-content"
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
-                {cards.find((c) => c.id === insightFor)?.front}
-              </div>
-              <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                <Icon.X size={18} />
-              </button>
-            </div>
-            {insightLoading ? (
-              <div style={{ textAlign: "center", padding: "24px 0" }}>
-                <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
-              </div>
-            ) : insightError ? (
-              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
-            ) : (
-              <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{insightCache[insightFor]}</div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -3245,6 +3263,94 @@ function AISettingsPanel({ onClose }) {
   );
 }
 
+function BackupPanel({ cards, categories, replaceAllData, showToast, onClose }) {
+  const importInputRef = useRef(null);
+
+  async function exportDeck() {
+    const payload = { exportedAt: new Date().toISOString(), cards, categories };
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = "dansk-backup-" + date + ".json";
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+
+    // Share the file directly when possible, so the person gets a real
+    // "choose where to save it" prompt (Files, AirDrop, Messages, etc.)
+    // instead of it silently landing wherever the browser's default
+    // downloads location happens to be.
+    if (navigator.share && navigator.canShare) {
+      try {
+        const file = new File([blob], filename, { type: "application/json" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "Dansk backup" });
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // they cancelled the share sheet — not a failure
+        // otherwise fall through to the plain download below
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("Backup file downloaded");
+  }
+
+  function triggerImport() {
+    if (importInputRef.current) importInputRef.current.click();
+  }
+
+  async function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow picking the same file again later
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed.cards) || !Array.isArray(parsed.categories)) {
+        showToast("That doesn't look like a Dansk backup file");
+        return;
+      }
+      const confirmed = window.confirm
+        ? window.confirm("This replaces everything currently in your deck (" + cards.length + " cards) with the " + parsed.cards.length + " cards from this backup. Continue?")
+        : true;
+      if (!confirmed) return;
+      const ok = await replaceAllData(parsed.cards, parsed.categories);
+      showToast(ok ? "Backup restored (" + parsed.cards.length + " cards)" : "Couldn't restore the backup");
+    } catch (e) {
+      showToast("Couldn't read that file — is it a Dansk backup?");
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontFamily: "var(--serif)", fontSize: 18 }}>Backup</div>
+        <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+          <Icon.X size={18} />
+        </button>
+      </div>
+      <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, color: "var(--muted)", lineHeight: 1.55, marginBottom: 16 }}>
+        Save a copy of your whole deck as a file, or restore one on another device or browser. This is separate from
+        any account sync — it always works, and is worth keeping as a real backup regardless.
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={exportDeck} style={{ ...smallBtn("var(--fjord)"), flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <Icon.Download size={14} /> Export
+        </button>
+        <button onClick={triggerImport} style={{ ...smallBtn("#A8A395"), flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <Icon.Upload size={14} /> Import
+        </button>
+        <input ref={importInputRef} type="file" accept="application/json,.json" onChange={handleImportFile} style={{ display: "none" }} />
+      </div>
+    </div>
+  );
+}
+
 function ChatView({ categories, addCategory, addCards, showToast, engine, onOpenSettings }) {
   const [mode, setMode] = useState("chat");
 
@@ -3734,6 +3840,8 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
   const [insightText, setInsightText] = useState("");
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
+  const lookupResultRef = useRef(null);
+  const lookupPopoverPlacement = usePopoverPlacement(!!insightFor, lookupResultRef);
 
   async function openInsight(word, meaning) {
     setInsightFor(word);
@@ -3901,7 +4009,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
 
       {lookupResult && (
-        <div style={{ marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
+        <div ref={lookupResultRef} style={{ position: "relative", marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
           <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.5, marginBottom: 10 }}>
             {lookupIsWordLike && (
               <>
@@ -3964,6 +4072,40 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
               </button>
             </div>
           </div>
+
+          {insightFor && lookupPopoverPlacement && (
+            <>
+              <div className="popover-backdrop" onClick={() => setInsightFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.25)", zIndex: 19 }} />
+              <div
+                className="popover"
+                style={{
+                  ...lookupPopoverPlacement,
+                  zIndex: 20,
+                  background: "var(--card)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 10,
+                  padding: 14,
+                  overflowY: "auto",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{insightFor}</div>
+                  <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                    <Icon.X size={16} />
+                  </button>
+                </div>
+                {insightLoading ? (
+                  <div style={{ textAlign: "center", padding: "16px 0" }}>
+                    <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
+                  </div>
+                ) : insightError ? (
+                  <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+                ) : (
+                  <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{insightText}</div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -4010,36 +4152,6 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
           <button onClick={addSelectedVocab} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 12 }}>
             Add selected to deck
           </button>
-        </div>
-      )}
-
-      {insightFor && (
-        <div
-          className="sheet-backdrop"
-          onClick={() => setInsightFor(null)}
-          style={{ position: "fixed", inset: 0, background: "rgba(35,39,42,0.55)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
-        >
-          <div
-            className="sheet-content"
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--card)", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", minHeight: "58vh", maxHeight: "80vh", overflowY: "auto" }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>{insightFor}</div>
-              <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
-                <Icon.X size={18} />
-              </button>
-            </div>
-            {insightLoading ? (
-              <div style={{ textAlign: "center", padding: "24px 0" }}>
-                <Icon.Loader2 className="spin" size={20} color="var(--muted)" />
-              </div>
-            ) : insightError ? (
-              <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
-            ) : (
-              <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{insightText}</div>
-            )}
-          </div>
         </div>
       )}
     </div>
