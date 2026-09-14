@@ -2682,7 +2682,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
       )}
 
       {insightFor && (
-        <CenteredOverlay onClose={() => setInsightFor(null)}>
+        <CenteredOverlay onClose={() => setInsightFor(null)} maxWidth={380}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
               {cards.find((c) => c.id === insightFor)?.front}
@@ -2706,7 +2706,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
       )}
 
       {askFor && (
-        <CenteredOverlay onClose={() => setAskFor(null)}>
+        <CenteredOverlay onClose={() => setAskFor(null)} maxWidth={380}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
               Ask about "{cards.find((c) => c.id === askFor)?.front}"
