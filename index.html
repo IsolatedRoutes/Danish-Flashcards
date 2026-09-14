@@ -1051,6 +1051,14 @@ function renderInlineMarkdown(text) {
 // reliability problems and was removed; this is a completely different,
 // much simpler mechanism that's been a mature, well-supported browser
 // feature (including in Safari) for years.
+// The camera-capture button only makes sense where there's an actual
+// camera to open — on desktop, the capture="environment" attribute is
+// simply ignored and falls back to the same file picker as "choose a
+// photo", making a separate button redundant and confusing there.
+function isMobileDevice() {
+  return typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
+}
+
 function speechSupported() {
   return typeof window !== "undefined" && !!window.speechSynthesis;
 }
@@ -5274,7 +5282,7 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
         )}
       </label>
 
-      {!preview && (
+      {!preview && isMobileDevice() && (
         <label
           style={{
             display: "flex",
