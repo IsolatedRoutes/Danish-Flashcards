@@ -2440,15 +2440,15 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
                 width: 13,
                 height: 13,
                 borderRadius: "50%",
-                border: "1.8px solid " + (unknownOnly ? "#8B9DC3" : "#C9C4B6"),
-                background: unknownOnly ? "#8B9DC3" : "transparent",
+                border: "1.8px solid " + (unknownOnly ? "#9B87A8" : "#C9C4B6"),
+                background: unknownOnly ? "#9B87A8" : "transparent",
                 flexShrink: 0,
               }}
             />
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Unknown only</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setStarredOnly(!starredOnly)}>
-            <StarIcon size={13} filled={starredOnly} color={starredOnly ? "var(--terracotta)" : "#C9C4B6"} />
+            <StarIcon size={13} filled={starredOnly} color={starredOnly ? "#C9A66B" : "#C9C4B6"} />
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Starred</span>
           </div>
         </div>
