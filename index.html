@@ -331,6 +331,46 @@ function CheckBadgeIcon({ size = 16, filled = false, style, onClick, onPointerDo
 
 const DEFAULT_CATEGORIES = [{ id: "grammar-lessons", name: "Grammar Lessons", custom: false }];
 
+// The vocabulary buildout created a lot of thin, overlapping categories
+// (e.g. "More Verbs", "Emotions in Depth"). This maps each one to the
+// broader category it was consolidated into, so a one-time migration can
+// re-point any of a user's existing cards at the surviving category
+// instead of leaving them scattered across dozens of near-duplicates.
+const CATEGORY_MERGE_MAP = {
+  "More Verbs": "Basic Verbs",
+  "Common Actions": "Basic Verbs",
+  "People & Roles": "Common Nouns",
+  "More Adjectives": "Adjectives",
+  "Qualities & States": "Adjectives",
+  "Time & Sequencing": "Numbers & Time",
+  "Shapes & Measurements": "Numbers & Time",
+  "Relationships & Social Life": "Family & People",
+  "Cooking & Dining Out": "Food & Drink",
+  "Housing & Real Estate": "Home & Daily Life",
+  "Household Chores": "Home & Daily Life",
+  "Everyday Situations": "Home & Daily Life",
+  "Travel Details": "Travel & Transport",
+  "Nature & Environment": "Weather & Nature",
+  "Weather in Detail": "Weather & Nature",
+  "Body Language & Gestures": "Body & Health",
+  "Education & Learning": "Work & School",
+  "Money & Personal Finance": "Work & School",
+  "Emotions in Depth": "Emotions & Personality",
+  "Personality Traits": "Emotions & Personality",
+  "Idioms & Expressions": "Common Phrases & Idioms",
+  "Opinions & Debate Language": "Common Phrases & Idioms",
+  "Common Connectors": "Prepositions & Connectors",
+  "Technology & Digital Life": "Technology & Media",
+  "Media & Entertainment": "Technology & Media",
+  "Problems & Solutions": "Abstract Concepts & Opinions",
+  "Final Additions": "Abstract Concepts & Opinions",
+  "Crime & Safety": "Society & Culture",
+  "Science & Research": "Society & Culture",
+  "Communication & Language": "Society & Culture",
+  "Sports & Fitness": "Hobbies & Leisure",
+};
+
+
 // These used to be pre-seeded alongside the starter vocabulary, but they
 // sat empty next to near-identically-named starter categories (e.g. an
 // empty "Verbs & Tense" right next to a populated "Basic Verbs") — purely
@@ -372,7 +412,18 @@ const STARTER_WORDS = {
     ["kræve","to require"],["foreslå","to suggest"],["bestemme","to decide"],["vælge","to choose"],["planlægge","to plan"],
     ["forberede","to prepare"],["vaske","to wash"],["male","to paint"],["tegne","to draw"],["optage","to record"],
     ["ansætte","to hire"],["søge","to search / apply"],["holde","to hold / keep"],["miste","to lose (something)"],["dele","to share / divide"],
-    ["samle","to gather / collect"],["sætte","to put / place"],["lægge","to lay down"],
+    ["samle","to gather / collect"],["sætte","to put / place"],["lægge","to lay down"],["at forsøge","to attempt"],["at anbefale","to recommend"],
+    ["at overveje","to consider"],["at beslutte","to decide"],["at undgå","to avoid"],["at forhindre","to prevent"],["at love","to promise"],
+    ["at true","to threaten"],["at advare","to warn"],["at overtale","to persuade"],["at overbevise","to convince"],["at påvirke","to influence"],
+    ["at forbedre","to improve"],["at forværre","to worsen"],["at forandre","to change"],["at udvikle","to develop"],["at forsvinde","to disappear"],
+    ["at dukke op","to show up"],["at opdage","to discover"],["at afsløre","to reveal"],["at skjule","to hide"],["at gemme","to save/hide"],
+    ["at bekræfte","to confirm"],["at benægte","to deny"],["at klage","to complain"],["at reagere","to react"],["at handle","to act"],
+    ["at undlade","to omit"],["at overtage","to take over"],["at deltage","to participate"],["at rive ned","to tear down"],["at sprede","to spread"],
+    ["at forene","to unite"],["at adskille","to separate"],["at forbinde","to connect"],["at afbryde","to interrupt"],["at genoptage","to resume"],
+    ["at udsætte","to postpone"],["at fremskynde","to speed up"],["at bremse","to slow down"],["at forsinke","to delay"],["at organisere","to organize"],
+    ["at gennemføre","to carry out"],["at opnå","to achieve"],["at mislykkes","to fail"],["at lykkes","to succeed"],["at prøve på","to try on"],
+    ["at teste","to test"],["at måle","to measure"],["at veje","to weigh"],["at tælle","to count"],["at beregne","to calculate"],
+    ["at anslå","to estimate"],
   ],
   "Common Nouns": [
     ["et hus","a house"],["en bil","a car"],["en by","a town"],["et land","a country"],["en verden","a world"],
@@ -403,7 +454,10 @@ const STARTER_WORDS = {
     ["en kollega","a colleague"],["et møde","a meeting"],["en aftale","an appointment / agreement"],["en plan","a plan"],["et mål","a goal"],
     ["en drøm","a dream"],["et håb","hope"],["en frygt","fear"],["en glæde","joy"],["en sorg","sorrow"],
     ["en kærlighed","love"],["et venskab","friendship"],["en familie","a family"],["en ven","a friend"],["en fjende","an enemy"],
-    ["en gæst","a guest"],["en nabo","a neighbor"],["en fremmed","a stranger"],["et arbejde","a job / work"],
+    ["en gæst","a guest"],["en nabo","a neighbor"],["en fremmed","a stranger"],["et arbejde","a job / work"],["en arbejdsgiver","an employer"],
+    ["en ekspert","an expert"],["en amatør","an amateur"],["en begynder","a beginner"],["en veteran","a veteran"],["en repræsentant","a representative"],
+    ["en talsperson","a spokesperson"],["en deltager","a participant"],["en tilhænger","a supporter"],["en kritiker","a critic"],["en beundrer","an admirer"],
+    ["en autoritet","an authority"],["en myndighed","an authority/agency"],["en embedsmand","a civil servant"],["en iværksætter","an entrepreneur"],["en ejer","an owner"],
   ],
   "Adjectives": [
     ["stor","big"],["lille","small"],["lang","long"],["kort","short"],["høj","tall / high"],
@@ -430,6 +484,17 @@ const STARTER_WORDS = {
     ["nødvendig","necessary"],["passende","suitable"],["praktisk","practical"],["moderne","modern"],["gammeldags","old-fashioned"],
     ["orange","orange"],["lilla","purple"],["lyserød","pink"],["lyseblå","light blue"],["mørkeblå","dark blue"],
     ["rund","round"],["firkantet","square-shaped"],["stribet","striped"],["ternet","checkered / plaid"],["ensfarvet","solid-colored"],
+    ["betydelig","significant"],["tilstrækkelig","sufficient"],["upassende","inappropriate"],["rimelig","reasonable"],["urimelig","unreasonable"],
+    ["effektiv","efficient"],["ineffektiv","inefficient"],["kompleks","complex"],["tydelig","clear"],["utydelig","unclear"],
+    ["konkret","concrete"],["abstrakt","abstract"],["åbenlys","obvious"],["uundgåelig","inevitable"],["afgørende","decisive"],
+    ["unødvendig","unnecessary"],["frivillig","voluntary"],["obligatorisk","mandatory"],["midlertidig","temporary"],["permanent","permanent"],
+    ["konstant","constant"],["stabil","stable"],["ustabil","unstable"],["tålmodig","patient"],["utålmodig","impatient"],
+    ["uærlig","dishonest"],["mistænksom","suspicious"],["naiv","naive"],["fordomsfri","unbiased"],["fordomsfuld","prejudiced"],
+    ["solid","solid"],["skrøbelig","fragile"],["holdbar","durable"],["slidt","worn"],["intakt","intact"],
+    ["beskadiget","damaged"],["defekt","defective"],["fejlfri","flawless"],["original","original"],["ægte","genuine"],
+    ["falsk","fake"],["autentisk","authentic"],["tidssvarende","up to date"],["forældet","outdated"],["upopulær","unpopular"],
+    ["almindelig","ordinary"],["usædvanlig","unusual"],["ekstraordinær","extraordinary"],["bemærkelsesværdig","remarkable"],["ubetydelig","insignificant"],
+    ["relevant","relevant"],["irrelevant","irrelevant"],
   ],
   "Numbers & Time": [
     ["en / et","one"],["to","two"],["tre","three"],["fire","four"],["fem","five"],
@@ -448,7 +513,15 @@ const STARTER_WORDS = {
     ["sjældent","rarely"],["tidligt","early"],["sent","late"],["klokken","the clock / o'clock"],["halv","half"],
     ["kvart","quarter"],["en weekend","a weekend"],["en ferie","a vacation"],["en fødselsdag","a birthday"],["et øjeblik","a moment"],
     ["en periode","a period"],["øjeblikkeligt","immediately"],["straks","right away"],["længe","for a long time"],["endnu","yet / still"],
-    ["allerede","already"],["nul","zero"],
+    ["allerede","already"],["nul","zero"],["i sidste ende","in the end"],["i første omgang","at first"],["efterhånden","gradually"],
+    ["pludselig","suddenly"],["i forvejen","in advance"],["bagefter","afterwards"],["undervejs","along the way"],["indtil videre","so far"],
+    ["fra nu af","from now on"],["indtil nu","until now"],["for evigt","forever"],["lejlighedsvis","occasionally"],["regelmæssigt","regularly"],
+    ["af og til","now and then"],["samtidig","simultaneously"],["forinden","beforehand"],["efterfølgende","subsequently"],["i fremtiden","in the future"],
+    ["i fortiden","in the past"],["nutildags","nowadays"],["en cirkel","a circle"],["et kvadrat","a square"],["en trekant","a triangle"],
+    ["en firkant","a rectangle"],["en linje","a line"],["en kant","an edge"],["et hjørne","a corner"],["en længde","a length"],
+    ["en bredde","a width"],["en højde","a height"],["en dybde","a depth"],["en vægt","a weight"],["et rumfang","a volume"],
+    ["en diameter","a diameter"],["en afstand","a distance"],["en vinkel","an angle"],["en procent","a percentage"],["en brøk","a fraction"],
+    ["et gennemsnit","an average"],["en mængde","an amount"],
   ],
   "Family & People": [
     ["en mor","a mother"],["en far","a father"],["forældre","parents"],["et barn","a child"],["en søn","a son"],
@@ -464,7 +537,12 @@ const STARTER_WORDS = {
     ["en ingeniør","an engineer"],["en programmør","a programmer"],["en kunstner","an artist"],["en musiker","a musician"],["en skuespiller","an actor"],
     ["en journalist","a journalist"],["en præst","a priest"],["en soldat","a soldier"],["en bonde","a farmer"],["en fisker","a fisherman"],
     ["en direktør","a director / CEO"],["en statsminister","a prime minister"],["en borgmester","a mayor"],["en turist","a tourist"],["et medlem","a member"],
-    ["en leder","a leader"],["en medarbejder","an employee"],["en pensionist","a retiree"],
+    ["en leder","a leader"],["en medarbejder","an employee"],["en pensionist","a retiree"],["et kærlighedsforhold","a romantic relationship"],["en date","a date"],
+    ["et ægteskab","a marriage"],["en skilsmisse","a divorce"],["en forlovelse","an engagement"],["en bryllup","a wedding"],["en jubilæum","an anniversary"],
+    ["en fest","a party"],["en invitation","an invitation"],["en vært","a host"],["et selskab","a company/gathering"],["en underordnet","a subordinate"],
+    ["en misforståelse","a misunderstanding"],["et skænderi","an argument"],["en forsoning","a reconciliation"],["en undskyldning","an apology"],["en tilgivelse","a forgiveness"],
+    ["en loyalitet","a loyalty"],["en flirt","a flirt"],["en eks","an ex"],["en gensidighed","a mutuality"],["en fortrolighed","an intimacy"],
+    ["en sladder","a gossip"],["et rygte","a rumor"],
   ],
   "Food & Drink": [
     ["en mad","food"],["en morgenmad","breakfast"],["en frokost","lunch"],["en aftensmad","dinner"],["et måltid","a meal"],
@@ -487,7 +565,10 @@ const STARTER_WORDS = {
     ["en appetit","appetite"],["skål","cheers"],["et franskbrød","white bread"],["en bolle","a bun"],["en pandekage","a pancake"],
     ["en risengrød","rice pudding"],["en frikadelle","a meatball"],["en leverpostej","liver pâté"],["en rødgrød","red berry pudding"],["en snaps","a schnapps"],
     ["en rødvin","a red wine"],["en hvidvin","a white wine"],["et fadøl","a draft beer"],["et knækbrød","crispbread"],["en müsli","muesli"],
-    ["en yoghurt","yogurt"],["en spegepølse","salami"],["et smørrebrød","an open sandwich"],
+    ["en yoghurt","yogurt"],["en spegepølse","salami"],["et smørrebrød","an open sandwich"],["en portion","a portion"],["en gryde","a pot"],
+    ["en pande","a pan"],["en menukort","a menu"],["en forret","a starter"],["en hovedret","a main course"],["en dessert","a dessert"],
+    ["en duft","a smell"],["en konsistens","a texture"],["krydret","spicy"],["mild","mild"],["mættende","filling"],
+    ["vegetarisk","vegetarian"],["vegansk","vegan"],["en bagning","a baking"],["en stegning","a frying"],["en kogning","a boiling"],
   ],
   "Home & Daily Life": [
     ["en lejlighed","an apartment"],["et værelse","a room"],["et soveværelse","a bedroom"],["et badeværelse","a bathroom"],["et køkken","a kitchen"],
@@ -506,7 +587,16 @@ const STARTER_WORDS = {
     ["stryge","to iron"],["et tøj","clothes"],["en lyspære","a lightbulb"],["en alarm","an alarm"],["et vækkeur","an alarm clock"],
     ["en kalender","a calendar"],["en seddel","a note"],["en liste","a list"],["en pose","a bag"],["en kurv","a basket"],
     ["en flaske","a bottle"],["en dåse","a can"],["en pakke","a package"],["en æske","a box"],["en taske","a bag / purse"],
-    ["en rygsæk","a backpack"],["en paraply","an umbrella"],
+    ["en rygsæk","a backpack"],["en paraply","an umbrella"],["en bolig","a home/residence"],["en villa","a detached house"],["en udlejer","a landlord"],
+    ["en lejer","a tenant"],["et depositum","a deposit"],["en lejekontrakt","a lease"],["en ejendom","a property"],["en ejendomsmægler","a real estate agent"],
+    ["et boligmarked","a housing market"],["et lån","a loan"],["et realkreditlån","a mortgage"],["en renovering","a renovation"],["en ombygning","a remodel"],
+    ["en flytning","a move"],["en flyttekasse","a moving box"],["et byggeri","a construction"],["en terrasse","a terrace"],["en indretning","an interior design"],
+    ["en vedligeholdelse","a maintenance"],["en rengøring","a cleaning"],["en støvsugning","a vacuuming"],["en opvask","a dishwashing"],["en tøjvask","a laundry"],
+    ["en strygning","an ironing"],["en oprydning","a tidying up"],["en affaldssortering","a waste sorting"],["en madlavning","a cooking"],["en græsslåning","a lawn mowing"],
+    ["en snerydning","a snow removal"],["en reparation","a repair"],["et rengøringsmiddel","a cleaning product"],["en gulvvask","a floor washing"],["en vinduespudsning","a window cleaning"],
+    ["en sengeredning","a bed-making"],["en støvning","a dusting"],["en ventetid","a wait time"],["en kø","a queue"],["en åbningstid","an opening hour"],
+    ["en lukketid","a closing time"],["en ombytning","an exchange"],["en returnering","a return"],["en garanti","a warranty"],["en undtagelse","an exception"],
+    ["en betingelse","a condition"],["et krav","a requirement"],["en tilladelse","a permission"],["et forbud","a ban"],
   ],
   "Travel & Transport": [
     ["en rejse","a trip / journey"],["et pas","a passport"],["et visum","a visa"],["en billet","a ticket"],["en bagage","luggage"],
@@ -521,7 +611,9 @@ const STARTER_WORDS = {
     ["en udflugt","an excursion"],["en seværdighed","an attraction"],["en guide","a guide"],["en reservation","a reservation"],["en afrejse","a departure (trip)"],
     ["en hjemrejse","a return trip"],["et jetlag","jet lag"],["en souvenir","a souvenir"],["en landsby","a village"],["en hovedstad","a capital city"],
     ["en region","a region"],["en kyst","a coast"],["en ø","an island"],["en halvø","a peninsula"],["en fjord","a fjord"],
-    ["en dal","a valley"],["en slette","a plain"],
+    ["en dal","a valley"],["en slette","a plain"],["en rejseplan","an itinerary"],["en aflysning","a cancellation"],["en boardingpas","a boarding pass"],
+    ["et toldkontrol","a customs check"],["en ambassade","an embassy"],["en rejseforsikring","a travel insurance"],["en vaccination","a vaccination"],["en tidszone","a time zone"],
+    ["en lokalbefolkning","a local population"],["et vandrerhjem","a hostel"],["en udlejningsbil","a rental car"],
   ],
   "Weather & Nature": [
     ["blæst","windy"],["en storm","a storm"],["et tordenvejr","a thunderstorm"],["et lyn","lightning"],["en torden","thunder"],
@@ -534,9 +626,14 @@ const STARTER_WORDS = {
     ["en sommerfugl","a butterfly"],["en myre","an ant"],["en edderkop","a spider"],["en flue","a fly"],["en myg","a mosquito"],
     ["en orm","a worm"],["en slange","a snake"],["en frø","a frog"],["en skildpadde","a turtle"],["en ræv","a fox"],
     ["en ulv","a wolf"],["en bjørn","a bear"],["en hjort","a deer"],["et egern","a squirrel"],["en kanin","a rabbit"],
-    ["en rotte","a rat"],
-    ["en dug","dew"],["en hagl","hail"],["et snefnug","a snowflake"],["en solnedgang","a sunset"],["en solopgang","a sunrise"],
-    ["en skygge","a shadow"],["en ørken","a desert"],["en vulkan","a volcano"],["en gletsjer","a glacier"],["et jordskælv","an earthquake"],
+    ["en rotte","a rat"],["en dug","dew"],["en hagl","hail"],["et snefnug","a snowflake"],["en solnedgang","a sunset"],
+    ["en solopgang","a sunrise"],["en skygge","a shadow"],["en ørken","a desert"],["en vulkan","a volcano"],["en gletsjer","a glacier"],
+    ["et jordskælv","an earthquake"],["en biodiversitet","a biodiversity"],["en udryddelse","an extinction"],["en emission","an emission"],["en klode","a planet"],
+    ["en forurening","a pollution"],["en genbrug","a recycling"],["en bæredygtighed","a sustainability"],["en ressource","a resource"],["en energi","an energy"],
+    ["et landskab","a landscape"],["en art","a species"],["et økosystem","an ecosystem"],["en klimaforandring","a climate change"],["en drivhuseffekt","a greenhouse effect"],
+    ["en naturkatastrofe","a natural disaster"],["en oversvømmelse","a flood"],["en tørke","a drought"],["en skovbrand","a wildfire"],["en byge","a shower"],
+    ["et isslag","black ice"],["en solskoldning","a sunburn"],["en brise","a breeze"],["en kuling","a gale"],["en fugtighed","a humidity"],
+    ["en varmebølge","a heatwave"],
   ],
   "Body & Health": [
     ["en krop","a body"],["et hoved","a head"],["et hår","hair"],["et ansigt","a face"],["et øje","an eye"],
@@ -553,7 +650,10 @@ const STARTER_WORDS = {
     ["en træning","training / exercise"],["en diæt","a diet"],["en søvn","sleep"],["en træthed","tiredness"],["en stress","stress"],
     ["en angst","anxiety"],["en graviditet","a pregnancy"],["en fødsel","a birth"],["en vaccine","a vaccine"],["et plaster","a band-aid"],
     ["en bandage","a bandage"],["en krykke","a crutch"],["en kørestol","a wheelchair"],["briller","glasses"],["en kontaktlinse","a contact lens"],
-    ["et høreapparat","a hearing aid"],
+    ["et høreapparat","a hearing aid"],["et smil","a smile"],["en latter","a laugh"],["et blik","a look"],["en gestus","a gesture"],
+    ["et nik","a nod"],["en krammer","a hug"],["et håndtryk","a handshake"],["en gaben","a yawn"],["et suk","a sigh"],
+    ["en grimasse","a grimace"],["en tåre","a tear"],["en rødmen","a blush"],["en rysten","a shiver"],["en gys","a shudder"],
+    ["en stirren","a stare"],
   ],
   "Work & School": [
     ["en opgave","a task"],["et projekt","a project"],["en deadline","a deadline"],["en rapport","a report"],["en præsentation","a presentation"],
@@ -566,8 +666,15 @@ const STARTER_WORDS = {
     ["en idræt","PE / sports"],["en musik","music"],["en kunst","art"],["en pause","a break"],["et frikvarter","recess"],
     ["en skoletaske","a school bag"],["en blyant","a pencil"],["en pen","a pen"],["et viskelæder","an eraser"],["en linjal","a ruler"],
     ["en tavle","a blackboard"],["et whiteboard","a whiteboard"],["et studiekort","a student card"],["et stipendium","a scholarship"],["et studielån","a student loan"],
-    ["en afgangseksamen","a final exam"],["et diplom","a diploma"],["en grad","a degree"],
-    ["en lektion","a lesson"],["en vikar","a substitute teacher"],["en rektor","a principal"],
+    ["en afgangseksamen","a final exam"],["et diplom","a diploma"],["en grad","a degree"],["en lektion","a lesson"],["en vikar","a substitute teacher"],
+    ["en rektor","a principal"],["en opsparing","a savings"],["en investering","an investment"],["en aktie","a stock/share"],["et budget","a budget"],
+    ["en udgift","an expense"],["en indtægt","a revenue"],["en faktura","an invoice"],["en gæld","a debt"],["en rente","an interest rate"],
+    ["en pension","a pension"],["en bonus","a bonus"],["en overførsel","a transfer"],["et kontantbeløb","a cash amount"],["en valuta","a currency"],
+    ["en vekselkurs","an exchange rate"],["en bank","a bank"],["et kreditkort","a credit card"],["en transaktion","a transaction"],["en underskrift","a signature"],
+    ["et dokument","a document"],["en undervisning","a teaching"],["et pensum","a curriculum"],["en lærebog","a textbook"],["en aflevering","a submission"],
+    ["en frist","a deadline"],["en forelæsning","a lecture"],["et kursus","a course"],["et studium","a study program"],["en klasseværelse","a classroom"],
+    ["en studiegruppe","a study group"],["en eksaminator","an examiner"],["en vejleder","a supervisor"],["en note","a note"],["en færdighed","a skill"],
+    ["en evne","an ability"],["en fremgangsmåde","a procedure"],["en indlæring","a learning process"],["en hukommelse","a memory"],["en koncentration","a concentration"],
   ],
   "Emotions & Personality": [
     ["en vrede","anger"],["en jalousi","jealousy"],["en skyld","guilt"],["en skam","shame"],["en stolthed","pride"],
@@ -581,6 +688,13 @@ const STARTER_WORDS = {
     ["sarkastisk","sarcastic"],["seriøs","serious"],["munter","cheerful"],["gnaven","grumpy"],["optimistisk","optimistic"],
     ["pessimistisk","pessimistic"],["hjælpsom","helpful"],["ansvarlig","responsible"],["uansvarlig","irresponsible"],["loyal","loyal"],
     ["sensitiv","sensitive"],["rationel","rational"],["impulsiv","impulsive"],["energisk","energetic"],["målrettet","goal-oriented"],
+    ["en tilfredshed","a satisfaction"],["en utilfredshed","a dissatisfaction"],["en flovhed","an embarrassment"],["en frustration","a frustration"],["en irritation","an irritation"],
+    ["en nervøsitet","a nervousness"],["en nysgerrighed","a curiosity"],["en taknemmelighed","a gratitude"],["en medfølelse","a compassion"],["en empati","an empathy"],
+    ["en afmagt","a helplessness"],["en skyldfølelse","a guilt"],["en lettet følelse","a sense of relief"],["overvældet","overwhelmed"],["ligeglad","indifferent"],
+    ["rørt","touched"],["chokeret","shocked"],["fortvivlet","desperate"],["generøs","generous"],["gerrig","stingy"],
+    ["egoistisk","selfish"],["uselvisk","unselfish"],["modig","brave"],["fej","cowardly"],["ambitiøs","ambitious"],
+    ["følsom","sensitive"],["hårdhudet","thick-skinned"],["beskeden","modest"],["charmerende","charming"],["irriterende","annoying"],
+    ["spontan","spontaneous"],["forsigtig","cautious"],["skødesløs","careless"],
   ],
   "Common Phrases & Idioms": [
     ["hej","hi"],["farvel","goodbye"],["godmorgen","good morning"],["godaften","good evening"],["godnat","good night"],
@@ -596,9 +710,16 @@ const STARTER_WORDS = {
     ["sikke noget","what a thing / wow"],["hold da op","wow / whoa"],["er du sikker?","are you sure?"],["jeg er enig","I agree"],["jeg er uenig","I disagree"],
     ["det giver mening","that makes sense"],["det giver ikke mening","that doesn't make sense"],["i mellemtiden","in the meantime"],["med det samme","right away"],["lidt efter lidt","little by little"],
     ["i hvert fald","in any case / at least"],["for eksempel","for example"],["med andre ord","in other words"],["det vil sige","that is to say"],["på trods af","despite"],
-    ["på grund af","because of"],["selvom","even though"],["i stedet for","instead of"],["i forhold til","in relation to"],
-    ["fra tid til anden","from time to time"],["en gang imellem","once in a while"],["det kan man ikke vide","you never know"],["lad os se","let's see"],["det håber jeg","I hope so"],
-    ["det tror jeg","I think so"],["stort set","basically"],["i det mindste","at least"],["hvis jeg var dig","if I were you"],
+    ["på grund af","because of"],["selvom","even though"],["i stedet for","instead of"],["i forhold til","in relation to"],["fra tid til anden","from time to time"],
+    ["en gang imellem","once in a while"],["det kan man ikke vide","you never know"],["lad os se","let's see"],["det håber jeg","I hope so"],["det tror jeg","I think so"],
+    ["stort set","basically"],["i det mindste","at least"],["hvis jeg var dig","if I were you"],["at være enig","to agree"],["at være uenig","to disagree"],
+    ["at modsige","to contradict"],["at understøtte","to support"],["at bestride","to dispute"],["at retfærdiggøre","to justify"],["at understrege","to emphasize"],
+    ["at antyde","to imply"],["at konkludere","to conclude"],["at generalisere","to generalize"],["at sammenligne","to compare"],["at modstille","to contrast"],
+    ["at vurdere","to evaluate"],["at kritisere","to criticize"],["at rose","to praise"],["efter min mening","in my opinion"],["på den ene side","on one hand"],
+    ["på den anden side","on the other hand"],["i modsætning til","in contrast to"],["alt i alt","all in all"],["kort sagt","in short"],["at slå to fluer med et smæk","to kill two birds with one stone"],
+    ["at tage tyren ved hornene","to take the bull by the horns"],["at falde med næsen i smøret","to fall into a lucky opportunity"],["at have en finger med i spillet","to be involved in something"],["at gå over åen efter vand","to make things unnecessarily complicated"],["at kaste håndklædet i ringen","to throw in the towel"],
+    ["at være ude i god tid","to be well ahead of time"],["at stikke en kæp i hjulet","to throw a wrench in the works"],["at tage skeen i den anden hånd","to change one's approach"],["at have hjertet på rette sted","to have one's heart in the right place"],["at gøre en dyd af nødvendigheden","to make a virtue of necessity"],
+    ["at være på bar bund","to be at a total loss"],["at ramme plet","to hit the mark"],["at gå agurk","to go crazy"],["at tale udenom","to beat around the bush"],
   ],
   "Prepositions & Connectors": [
     ["i","in"],["på","on"],["til","to"],["fra","from"],["med","with"],
@@ -612,7 +733,10 @@ const STARTER_WORDS = {
     ["næsten","almost"],["helt","completely"],["lidt","a little"],["meget","very / a lot"],["nok","enough"],
     ["hvor","where"],["hvorfor","why"],["hvordan","how"],["hvornår","when (question)"],["hvem","who"],
     ["hvad","what"],["hvilken","which"],["op","up"],["ned","down"],["ind","in (direction)"],
-    ["ud","out (direction)"],["hen","over / toward"],["forbi","past / by"],["omkring","around"],
+    ["ud","out (direction)"],["hen","over / toward"],["forbi","past / by"],["omkring","around"],["skønt","although"],
+    ["medmindre","unless"],["forudsat at","provided that"],["i tilfælde af","in case of"],["i mangel af","for lack of"],["som følge af","as a result of"],
+    ["i kraft af","by virtue of"],["med hensyn til","regarding"],["angående","concerning"],["bortset fra","apart from"],["ud over","besides"],
+    ["ligesom","just like"],["hvorimod","whereas"],["hvorved","whereby"],["hvorefter","after which"],
   ],
   "Clothing & Shopping": [
     ["en skjorte","a shirt"],["en t-shirt","a t-shirt"],["en bluse","a blouse"],["bukser","pants"],["en jeans","jeans"],
@@ -638,7 +762,13 @@ const STARTER_WORDS = {
     ["en reklame","an advertisement"],["en opdatering","an update"],["en version","a version"],["en fejl","an error / bug"],["en virus","a virus"],
     ["en sikkerhed","security"],["en backup","a backup"],["en server","a server"],["et netværk","a network"],["en router","a router"],
     ["et batteri","a battery"],["en opladning","charging"],["et skærmbillede","a screenshot"],["et hardware","hardware"],["en robot","a robot"],
-    ["en kunstig intelligens","artificial intelligence"],
+    ["en kunstig intelligens","artificial intelligence"],["en artikel","an article"],["en overskrift","a headline"],["en udsendelse","a broadcast"],["en kanal","a channel"],
+    ["en serie","a series"],["en afsnit","an episode"],["en instruktør","a director"],["en rolle","a role"],["en anmeldelse","a review"],
+    ["en genre","a genre"],["en soundtrack","a soundtrack"],["en sang","a song"],["en tekst","lyrics"],["et interview","an interview"],
+    ["en dokumentar","a documentary"],["en streamingtjeneste","a streaming service"],["en påvirker","an influencer"],["en nyhed","a piece of news"],["en udgivelse","a release"],
+    ["en adgangskode","a password"],["en indstilling","a setting"],["et link","a link"],["en browser","a browser"],["en nedbrud","a crash"],
+    ["en genstart","a restart"],["en installation","an installation"],["en synkronisering","a sync"],["en enhed","a device"],["en forbindelse","a connection"],
+    ["en firewall","a firewall"],["en sikkerhedskopi","a backup"],
   ],
   "Abstract Concepts & Opinions": [
     ["en hensigt","an intention"],["en antagelse","an assumption"],["en betragtning","a consideration"],["en mening","an opinion"],["en holdning","an attitude"],
@@ -650,7 +780,21 @@ const STARTER_WORDS = {
     ["en fremgang","progress"],["et fremskridt","an advance"],["en oplevelse","an experience"],["et indtryk","an impression"],["en vurdering","an assessment"],
     ["en forventning","an expectation"],["en skuffelse","a disappointment"],["en bekymring","a worry"],["en tvivl","a doubt"],["en overbevisning","a conviction"],
     ["en værdi","a value"],["et princip","a principle"],["en teori","a theory"],["et begreb","a concept"],["en påvirkning","an influence"],
-    ["en risiko","a risk"],["en fordom","a prejudice"],
+    ["en risiko","a risk"],["en fordom","a prejudice"],["en hindring","an obstacle"],["en forhindring","a hurdle"],["en begrænsning","a limitation"],
+    ["en mangel","a shortage"],["et underskud","a deficit"],["et overskud","a surplus"],["en nødsituation","an emergency"],["en fejltagelse","a mistake"],
+    ["en uenighed","a disagreement"],["en modsætning","a contradiction"],["en kompromis","a compromise"],["en alternativ","an alternative"],["en udvej","a way out"],
+    ["en genvej","a shortcut"],["en omvej","a detour"],["en beslutningstager","a decision-maker"],["en igangsætter","an initiator"],["en efterfølger","a successor"],
+    ["en forgænger","a predecessor"],["en tilhænger af","a proponent of"],["en modstander af","an opponent of"],["en fortaler","an advocate"],["en formidler","a mediator"],
+    ["en iagttager","an observer"],["en deltagerliste","a list of participants"],["en prioritet","a priority"],["en dagsorden","an agenda"],["et referat","a summary/minutes"],
+    ["en beslutningsproces","a decision-making process"],["en høring","a hearing"],["en afklaring","a clarification"],["en uklarhed","an ambiguity"],["en tvetydighed","an ambiguity"],
+    ["en nuance","a nuance"],["en detalje","a detail"],["en helhed","a whole"],["en delmængde","a subset"],["en kategori","a category"],
+    ["en klassificering","a classification"],["en rangorden","a ranking"],["en prioritering","a prioritization"],["en tilpasning","an adaptation"],["en tilvænning","an adjustment"],
+    ["en overgang","a transition"],["en milepæl","a milestone"],["en fase","a phase"],["et stadie","a stage"],["et niveau","a level"],
+    ["en skala","a scale"],["en tærskel","a threshold"],["en grænseværdi","a limit value"],["en variation","a variation"],["en afvigelse","a deviation"],
+    ["en uregelmæssighed","an irregularity"],["en sammenhængskraft","a cohesion"],["en balance","a balance"],["en ubalance","an imbalance"],["en ligevægt","an equilibrium"],
+    ["en harmoni","a harmony"],["en disharmoni","a discord"],["en modvilje","a reluctance"],["en villighed","a willingness"],["en beredvillighed","a readiness"],
+    ["en tøven","a hesitation"],["en beslutsomhed","a determination"],["en vedholdenhed","a persistence"],["en opgivelse","a giving up"],["en genopretning","a recovery"],
+    ["en tilbagevenden","a return"],["en tilbagegang","a decline"],["en stagnation","a stagnation"],
   ],
   "Society & Culture": [
     ["en straf","a punishment"],["en forpligtelse","an obligation"],["en institution","an institution"],["en minoritet","a minority"],["et flertal","a majority"],
@@ -660,13 +804,32 @@ const STARTER_WORDS = {
     ["en fattigdom","poverty"],["en rigdom","wealth"],["en generation","a generation"],["en befolkning","a population"],["et fællesskab","a community"],
     ["en integration","an integration"],["en identitet","an identity"],["en religion","a religion"],["en ytringsfrihed","a freedom of speech"],["en debat","a debate"],
     ["en konflikt","a conflict"],["en krise","a crisis"],["en protest","a protest"],["en demonstration","a demonstration"],["en rettighed","an entitlement"],
-    ["en pligtfølelse","a sense of duty"],
+    ["en pligtfølelse","a sense of duty"],["en forbrydelse","a crime"],["en tyveri","a theft"],["et indbrud","a burglary"],["et bedrageri","a fraud"],
+    ["en anklage","an accusation"],["en efterforskning","an investigation"],["en anholdelse","an arrest"],["en dom","a verdict"],["en retssag","a court case"],
+    ["en dommer","a judge"],["et vidne","a witness"],["et bevis","an evidence"],["en fængsel","a prison"],["en offer","a victim"],
+    ["en gerningsmand","a perpetrator"],["en fare","a danger"],["et overfald","an assault"],["en trussel","a threat"],["en ulykke","an accident"],
+    ["en skade","a damage/injury"],["en redning","a rescue"],["en evakuering","an evacuation"],["en brandvæsen","a fire department"],["et nødopkald","an emergency call"],
+    ["en videnskab","a science"],["en forsker","a researcher"],["et forsøg","an experiment"],["en opdagelse","a discovery"],["en opfindelse","an invention"],
+    ["en hypotese","a hypothesis"],["en metode","a method"],["en analyse","an analysis"],["et data","a data"],["en statistik","a statistics"],
+    ["en konklusion","a conclusion"],["en teknologi","a technology"],["en innovation","an innovation"],["en opfinder","an inventor"],["et laboratorium","a laboratory"],
+    ["en afhandling","a thesis"],["en genetik","a genetics"],["et molekyle","a molecule"],["en celle","a cell"],["en samtale","a conversation"],
+    ["en diskussion","a discussion"],["en forhandling","a negotiation"],["en meddelelse","an announcement"],["en forespørgsel","an inquiry"],["en anmodning","a request"],
+    ["en instruktion","an instruction"],["en forklaring","an explanation"],["en beskrivelse","a description"],["en oversættelse","a translation"],["en dialekt","a dialect"],
+    ["en accent","an accent"],["en udtale","a pronunciation"],["en grammatik","a grammar"],["et ordforråd","a vocabulary"],["en sætning","a sentence"],
+    ["et udtryk","an expression"],["en talemåde","a saying"],["en tolk","an interpreter"],["en tavshed","a silence"],["en høflighed","a politeness"],
   ],
-  "Nature & Environment": [
-    ["en biodiversitet","a biodiversity"],["en udryddelse","an extinction"],["en emission","an emission"],["en klode","a planet"],["en forurening","a pollution"],
-    ["en genbrug","a recycling"],["en bæredygtighed","a sustainability"],["en ressource","a resource"],["en energi","an energy"],["et landskab","a landscape"],
-    ["en art","a species"],["et økosystem","an ecosystem"],["en klimaforandring","a climate change"],["en drivhuseffekt","a greenhouse effect"],["en naturkatastrofe","a natural disaster"],
-    ["en oversvømmelse","a flood"],["en tørke","a drought"],["en skovbrand","a wildfire"],
+  "Hobbies & Leisure": [
+    ["en fritid","a leisure time"],["en interesse","an interest"],["et talent","a talent"],["en hobby","a hobby"],["en samling","a collection"],
+    ["et håndarbejde","a handicraft"],["en strikning","a knitting"],["en syning","a sewing"],["en maling","a painting"],["en tegning","a drawing"],
+    ["et fotografi","a photograph"],["en koncert","a concert"],["en udstilling","an exhibition"],["en biograf","a cinema"],["et teater","a theatre"],
+    ["en forestilling","a performance"],["en klub","a club"],["en konkurrence","a competition"],["en turnering","a tournament"],["en sejr","a victory"],
+    ["et nederlag","a defeat"],["en holdkammerat","a teammate"],["en fanklub","a fan club"],["en tilskuer","a spectator"],["en yoga","a yoga"],
+    ["en meditation","a meditation"],["en vandretur","a hike"],["en cykeltur","a bike ride"],["et fiskeri","a fishing"],["en jagt","a hunt"],
+    ["en havearbejde","a gardening"],["en gåtur","a walk"],["et brætspil","a board game"],["et puslespil","a puzzle"],["en gætteleg","a guessing game"],
+    ["et håndværk","a craft"],["en øvelse","an exercise"],["en styrke","a strength"],["en udholdenhed","an endurance"],["en kondition","a fitness"],
+    ["et fitnesscenter","a gym"],["en træner","a coach"],["et hold","a team"],["en modstander","an opponent"],["en bane","a field/court"],
+    ["en runde","a round"],["en rekord","a record"],["en medalje","a medal"],["en præstation","a performance"],["en opvarmning","a warm-up"],
+    ["en udstrækning","a stretch"],["en løbetur","a run"],["en svømmetur","a swim"],["en fodboldkamp","a football match"],["et mesterskab","a championship"],
   ],
 };
 
@@ -772,6 +935,37 @@ function slugify(text) {
 
 function stableStarterId(front) {
   return "starter:" + slugify(front);
+}
+
+// One-time migration for existing users: re-points any card using one of
+// the old, since-consolidated category names at the surviving category,
+// then drops the now-empty old ones. Returns null if this user has none
+// of the old categories (nothing to do), so the caller can skip writing.
+function migrateConsolidatedCategories(cards, categories) {
+  let changed = false;
+  let newCategories = categories;
+  let newCards = cards;
+
+  Object.entries(CATEGORY_MERGE_MAP).forEach(([oldName, newName]) => {
+    const oldCat = newCategories.find((c) => c.name === oldName);
+    if (!oldCat) return; // this user never had that old category
+    const survivor = newCategories.find((c) => c.name === newName);
+    if (!survivor) {
+      // Extremely unlikely (the anchor category should already exist for
+      // anyone who has the absorbed one), but handle it defensively by
+      // just renaming the old category in place instead of losing it.
+      newCategories = newCategories.map((c) => (c.id === oldCat.id ? { ...c, name: newName } : c));
+      changed = true;
+      return;
+    }
+    if (newCards.some((c) => c.category === oldCat.id)) {
+      newCards = newCards.map((c) => (c.category === oldCat.id ? { ...c, category: survivor.id } : c));
+    }
+    newCategories = newCategories.filter((c) => c.id !== oldCat.id);
+    changed = true;
+  });
+
+  return changed ? { cards: newCards, categories: newCategories } : null;
 }
 
 function buildStarterAdditions(existingCategories, existingFrontsSet) {
@@ -1541,13 +1735,25 @@ function DanishFlashcards() {
         return card;
       });
 
+      // One-time migration: re-point any card using one of the old,
+      // since-consolidated category names (from before the vocabulary
+      // buildout's many thin categories were merged down) at the
+      // surviving category.
+      let consolidationMigrated = false;
+      const consolidationResult = migrateConsolidatedCategories(c, cat);
+      if (consolidationResult) {
+        c = consolidationResult.cards;
+        cat = consolidationResult.categories;
+        consolidationMigrated = true;
+      }
+
       // Starter vocabulary should always just be complete — no manual
       // button, no visible prompt. This quietly tops up anything missing,
       // whether that's a first-ever launch with nothing yet, or an
       // existing deck from before a later vocabulary expansion.
       const existingFronts = new Set(c.map((card) => card.front.trim().toLowerCase()));
       const { newCards, combinedCategories } = buildStarterAdditions(cat, existingFronts);
-      if (newCards.length > 0 || idsMigrated) {
+      if (newCards.length > 0 || idsMigrated || consolidationMigrated) {
         cat = combinedCategories;
         c = [
           ...c,
@@ -1727,6 +1933,8 @@ function DanishFlashcards() {
           onOpenBackup={() => setShowBackup((s) => !s)}
           settingsOpen={showSettings}
           backupOpen={showBackup}
+          knownWordCount={cards.filter((c) => c.type === "word" && c.known).length}
+          totalWordCount={cards.filter((c) => c.type === "word").length}
         />
         {showSettings && (
           <CenteredOverlay onClose={() => setShowSettings(false)}>
@@ -1831,7 +2039,7 @@ function Shell({ children }) {
   );
 }
 
-function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen }) {
+function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen, knownWordCount, totalWordCount }) {
   return (
     <div style={{ padding: "22px 18px 14px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1857,6 +2065,11 @@ function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen }) {
             {settingsOpen ? <Icon.ChevronUp size={11} /> : null}
           </button>
         </div>
+      </div>
+      <div style={{ marginTop: 7, fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>
+        <span style={{ color: "var(--sage)", fontWeight: 700 }}>{knownWordCount.toLocaleString()} known</span>
+        {" · "}
+        {Math.max(0, totalWordCount - knownWordCount).toLocaleString()} to go
       </div>
     </div>
   );
@@ -2030,6 +2243,20 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     setExiting("right");
   }
 
+  // Left/right arrow keys navigate cards on desktop, matching the Back/Next
+  // buttons. Skipped while typing in a text field (e.g. the "ask about
+  // this word" box) so arrow keys there move the cursor as expected.
+  useEffect(() => {
+    function onKeyDown(e) {
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "ArrowRight") requestNext();
+      else if (e.key === "ArrowLeft") requestBack();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
   function onGestureStart(clientX, clientY) {
     if (exiting) return;
     gesture.current = { startX: clientX, startY: clientY, active: true };
@@ -2094,9 +2321,9 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     setAskError("");
     try {
       const reply = await callAI(
-        "You're a Danish tutor answering one specific follow-up question a learner has about a single flashcard word or phrase they're studying. Answer directly and concisely in plain English, focused only on what they actually asked.",
+        "You're a Danish tutor answering one specific follow-up question a learner has about a single flashcard word or phrase they're studying. Answer directly and concisely, in 1-3 short sentences — never more than that, and never pad the answer with extra context they didn't ask for. Write in plain flowing prose only: no headers, no bullet points, no numbered lists, no markdown formatting of any kind.",
         'The flashcard is: "' + card.front + '" (means: ' + card.back + '). Their question: "' + askQuestion.trim() + '"',
-        { maxTokens: 500 }
+        { maxTokens: 300 }
       );
       setAskAnswer(reply.trim());
     } catch (e) {
@@ -2232,7 +2459,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
       ) : (
         <>
           <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Card {idx + 1} of {poolIds.length} · {knownNowCount} known
+            Card {idx + 1} of {poolIds.length}
           </div>
           <div
             key={current.id}
@@ -2467,7 +2694,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
           ) : insightError ? (
             <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
           ) : (
-            <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+            <div style={{ background: "var(--paper)", borderRadius: 8, padding: "12px 14px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
               {renderInlineMarkdown(insightCache[insightFor])}
             </div>
           )}
@@ -2498,7 +2725,9 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
           </div>
           {askError && <AIErrorNote message={askError} onOpenSettings={onOpenSettings} />}
           {askAnswer && (
-            <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(askAnswer)}</div>
+            <div style={{ background: "var(--paper)", borderRadius: 8, padding: "12px 14px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+              {renderInlineMarkdown(askAnswer)}
+            </div>
           )}
         </CenteredOverlay>
       )}
@@ -2592,7 +2821,8 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
     });
   }
 
-  const knownCount = cards.filter((c) => c.known).length;
+  const knownCount = cards.filter((c) => c.type === "word" && c.known).length;
+  const unknownCount = cards.filter((c) => c.type === "word" && !c.known).length;
 
   async function openInsight(card) {
     setInsightFor(card.id);
@@ -2704,7 +2934,10 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
               ★ Starred
             </Pill>
             <Pill color="var(--sage)" active={knownFilter === "known"} onClick={() => setKnownFilter(knownFilter === "known" ? "all" : "known")}>
-              ✓ Known ({knownCount})
+              Known ({knownCount})
+            </Pill>
+            <Pill color="var(--fjord)" active={knownFilter === "unknown"} onClick={() => setKnownFilter(knownFilter === "unknown" ? "all" : "unknown")}>
+              Unknown ({unknownCount})
             </Pill>
           </div>
 
@@ -2789,7 +3022,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
                           ) : insightError ? (
                             <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
                           ) : (
-                            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightCache[insightFor])}</div>
+                            <div style={{ background: "var(--paper)", borderRadius: 8, padding: "10px 12px", fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightCache[insightFor])}</div>
                           )}
                         </CenteredOverlay>
                       )}
@@ -3767,7 +4000,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
     try {
       const history = next.slice(-20).map((m) => ({ role: m.role, content: m.content }));
       const reply = await callAI(
-        "You are a friendly, knowledgeable Danish language tutor. The learner is intermediate but self-taught, so they have some foundational gaps in grammar despite a decent vocabulary. Answer clearly and concisely in plain English. Use Danish examples with English translations whenever they help. Don't over-explain simple things, but don't assume advanced grammar terms are familiar either.",
+        "You are a knowledgeable Danish language reference for an intermediate, self-taught learner who has some foundational grammar gaps despite a decent vocabulary. Answer the question directly and concisely, then stop — don't pad the answer with extra context they didn't ask for, and never end with a follow-up question or an invitation to continue the conversation (no \"let me know if...\", no \"would you like...\", no checking in). This is a reference lookup, not a back-and-forth chat. Use Danish examples with English translations whenever they help. Don't over-explain simple things, but don't assume advanced grammar terms are familiar either.",
         text,
         { maxTokens: 800, history: history.slice(0, -1) }
       );
@@ -4032,13 +4265,18 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setLookupResult(null);
     try {
       const reply = await callAI(
-        "You translate between Danish and English for a language learner. First determine whether the input text is Danish or English — do not assume it's always Danish. Then: if the input is Danish, put that Danish text in \"da\" and your English translation in \"en\"; if the input is English, put your Danish translation in \"da\" and that English text in \"en\". This must work correctly in both directions — translating an English input into Danish is just as important as the reverse. Never invent or substitute a different word that merely looks similar to the input — if the input might contain a typo, translate your single best real-word interpretation of what was actually typed, not some other unrelated word. The translation side must be ONLY in its target language — never repeat or include the original alongside it. If it's a single Danish noun, include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
-        'Translate this: "' + text.trim() + '". Respond ONLY with JSON, no other text: {"da": "...", "en": "..."}',
+        "You translate between Danish and English for a language learner. Your first and most important job is to correctly identify which language the input is written in — it will not always be Danish, and treating it as Danish by default is a common mistake to avoid. Then translate it into the other language. Never invent or substitute a different word that merely looks similar to the input — if the input might contain a typo, translate your single best real-word interpretation of what was actually typed, not some other unrelated word. The translation must be ONLY in its target language — never repeat or include the original alongside it. If it's a single Danish noun (on either side), include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
+        'Identify the language of this text, then translate it: "' +
+          text.trim() +
+          '". Respond ONLY with JSON, no other text: {"detectedLanguage": "da or en", "original": "the input text, cleaned up if needed but in its original language", "translation": "your translation, in the other language"}',
         { maxTokens: 1500 }
       );
       const parsed = parseJSONLoose(reply);
-      const da = cleanTranslation(parsed.da);
-      const en = cleanTranslation(parsed.en);
+      const isEnglish = String(parsed.detectedLanguage || "").toLowerCase().startsWith("en");
+      const original = cleanTranslation(parsed.original);
+      const translation = cleanTranslation(parsed.translation);
+      const da = isEnglish ? translation : original;
+      const en = isEnglish ? original : translation;
       // If both sides came back the same, the model didn't actually
       // translate — it just echoed the input into both fields. Treat
       // that as a failure rather than silently showing a broken result.
@@ -4357,7 +4595,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
               ) : insightError ? (
                 <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
               ) : (
-                <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightText)}</div>
+                <div style={{ background: "var(--paper)", borderRadius: 8, padding: "10px 12px", fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightText)}</div>
               )}
             </CenteredOverlay>
           )}
@@ -4516,12 +4754,34 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
   const [backend, setBackend] = useState(undefined); // "gemini" | "api" | null
   const [preview, setPreview] = useState(null);
   const [file, setFile] = useState(null);
+
+  // Extract text (existing vocabulary-extraction flow)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [items, setItems] = useState([]);
   const [grammarNotes, setGrammarNotes] = useState("");
   const [selected, setSelected] = useState({});
   const [itemCategory, setItemCategory] = useState({}); // index -> category id, individually suggested per item
+
+  // Translate — same shape/behavior as the text Translate panel, just
+  // reading the Danish (or English) text straight out of the photo.
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState("");
+  const [lookupResult, setLookupResult] = useState(null);
+  const [lookupCategory, setLookupCategory] = useState(categories[0]?.id || "");
+
+  // Analyze sentence — same grammar-breakdown flow as the text panel.
+  const [sentenceLoading, setSentenceLoading] = useState(false);
+  const [sentenceError, setSentenceError] = useState("");
+  const [sentenceResult, setSentenceResult] = useState(null);
+  const [sentenceSelected, setSentenceSelected] = useState({});
+  const [pointCategory, setPointCategory] = useState({});
+
+  // Word-insight popup for the Translate result, same as elsewhere.
+  const [insightFor, setInsightFor] = useState(null);
+  const [insightText, setInsightText] = useState("");
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -4544,7 +4804,11 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     setPreview(URL.createObjectURL(f));
     setItems([]);
     setGrammarNotes("");
+    setLookupResult(null);
+    setSentenceResult(null);
     setError("");
+    setLookupError("");
+    setSentenceError("");
   }
 
   function pickFile(e) {
@@ -4566,6 +4830,141 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     setSelected({});
     setItemCategory({});
     setError("");
+    setLookupResult(null);
+    setLookupError("");
+    setSentenceResult(null);
+    setSentenceSelected({});
+    setPointCategory({});
+    setSentenceError("");
+  }
+
+  async function callVision(system, userText) {
+    const base64 = await fileToBase64(file);
+    const mediaType = file.type || "image/jpeg";
+    return backend === "gemini" ? callGeminiImage(system, userText, base64, mediaType) : callClaudeImage(system, userText, base64, mediaType);
+  }
+
+  async function openInsight(word, meaning) {
+    setInsightFor(word);
+    setInsightError("");
+    setInsightText("");
+    setInsightLoading(true);
+    try {
+      const reply = await callAI(
+        WORD_INSIGHT_SYSTEM_PROMPT,
+        'Danish word or phrase: "' + word + '"' + (meaning ? " (means: " + meaning + ")" : ""),
+        { maxTokens: 700 }
+      );
+      setInsightText(reply.trim());
+    } catch (e) {
+      setInsightError(apiErrorMessage(e));
+    } finally {
+      setInsightLoading(false);
+    }
+  }
+
+  async function translate() {
+    if (!file) return;
+    setLookupLoading(true);
+    setLookupError("");
+    setLookupResult(null);
+    try {
+      const reply = await callVision(
+        "You translate between Danish and English for a language learner, reading text directly out of a photo (a sign, a book page, an app, packaging). Your first and most important job is to correctly identify which language the text in the image is written in — it will not always be Danish, and treating it as Danish by default is a common mistake to avoid. Then translate it into the other language. If there's more than one distinct piece of text, focus on the single most prominent one. The translation must be ONLY in its target language — never repeat or include the original alongside it. If it's a single Danish noun (on either side), include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English.",
+        'Identify the language of the text in this photo, then translate it. Respond ONLY with JSON, no other text: {"detectedLanguage": "da or en", "original": "the text from the photo, in its original language", "translation": "your translation, in the other language"}'
+      );
+      const parsed = parseJSONLoose(reply);
+      const isEnglish = String(parsed.detectedLanguage || "").toLowerCase().startsWith("en");
+      const original = cleanTranslation(parsed.original);
+      const translation = cleanTranslation(parsed.translation);
+      const da = isEnglish ? translation : original;
+      const en = isEnglish ? original : translation;
+      if (da && en && da.trim().toLowerCase() === en.trim().toLowerCase()) {
+        throw new Error("TRANSLATION_DIDNT_HAPPEN");
+      }
+      setLookupResult({ da, en });
+    } catch (e) {
+      setLookupError(apiErrorMessage(e));
+    } finally {
+      setLookupLoading(false);
+    }
+  }
+
+  function addLookup() {
+    if (!lookupResult || !lookupResult.da || !lookupResult.en) {
+      setLookupError("Didn't get a usable translation to add — try translating again.");
+      return;
+    }
+    let catId = lookupCategory;
+    if (lookupCategory.startsWith("__new__")) catId = addCategory(lookupCategory.replace("__new__", "") || "Quick lookups");
+    const type = (lookupResult.da || "").trim().split(/\s+/).length > 3 ? "sentence" : "word";
+    addCards([{ type, front: lookupResult.da, back: lookupResult.en, category: catId }]);
+    setLookupResult(null);
+  }
+
+  async function analyzeSentence() {
+    if (!file) return;
+    setSentenceLoading(true);
+    setSentenceError("");
+    setSentenceResult(null);
+    try {
+      const categoryNames = categories.map((c) => c.name).join(", ");
+      const reply = await callVision(
+        "You are a patient Danish tutor for an intermediate, self-taught learner who has foundational grammar gaps, reading text directly out of a photo. Cover the whole piece of text visible, not just the first clause — identify each distinct grammar point worth explaining separately rather than picking just one. If there's a grammar mistake anywhere in Danish text shown, point it out clearly and explain why. If the text is English, or the Danish was already correct, leave the correction note empty. " +
+          "For each distinct grammar point you identify: give it a short name, explain it in plain, concise English (2-4 sentences, no jargon overload), give the correct Danish sentence that illustrates it (drawn from the image where it fits, or a new one otherwise) with its English translation, provide exactly 2 more example sentences using the same structure in different contexts, and suggest the single best-fitting category for it — prefer an existing category if one genuinely fits. " +
+          "Existing categories to prefer if one fits: " +
+          (categoryNames || "(none yet)") +
+          '. \n\nRespond ONLY with JSON in this exact shape, no other text: {"correctionNote": "...", "grammarPoints": [{"grammarName": "...", "explanation": "...", "mainExample": {"da": "...", "en": "..."}, "examples": [{"da":"...","en":"..."}, {"da":"...","en":"..."}], "suggestedCategory": "..."}]} — correctionNote should be an empty string when there was nothing to correct.',
+        "Analyze the grammar of the text in this photo."
+      );
+      const parsed = parseJSONLoose(reply);
+      const points = parsed.grammarPoints || [];
+      if (points.length === 0) {
+        setSentenceError("Couldn't identify a clear grammar point in that photo — try a clearer shot, or one with more text.");
+        return;
+      }
+      setSentenceResult({ correctionNote: parsed.correctionNote || "", grammarPoints: points });
+      const initialSelected = {};
+      const initialCategory = {};
+      points.forEach((p, i) => {
+        initialSelected[i] = { grammar: true, main: true, examples: { 0: true, 1: true } };
+        const existing = categories.find((c) => c.name.toLowerCase() === (p.suggestedCategory || "").toLowerCase());
+        initialCategory[i] = existing ? existing.id : "__new__" + (p.suggestedCategory || "");
+      });
+      setSentenceSelected(initialSelected);
+      setPointCategory(initialCategory);
+    } catch (e) {
+      setSentenceError(apiErrorMessage(e));
+    } finally {
+      setSentenceLoading(false);
+    }
+  }
+
+  function addSentenceSelected() {
+    if (!sentenceResult) return;
+    const toAdd = [];
+    sentenceResult.grammarPoints.forEach((point, i) => {
+      const sel = sentenceSelected[i] || {};
+      let catId = pointCategory[i] || "";
+      if (catId.startsWith("__new__")) catId = addCategory(catId.replace("__new__", "") || "New grammar point");
+      if (sel.grammar) {
+        toAdd.push({
+          type: "grammar",
+          front: point.grammarName,
+          back: point.explanation,
+          notes: "Example: " + point.mainExample.da + " — " + point.mainExample.en,
+          category: catId,
+          examples: point.examples,
+        });
+      }
+      if (sel.main) toAdd.push({ type: "sentence", front: point.mainExample.da, back: point.mainExample.en, category: catId });
+      (point.examples || []).forEach((ex, j) => {
+        if (sel.examples && sel.examples[j]) toAdd.push({ type: "sentence", front: ex.da, back: ex.en, category: catId });
+      });
+    });
+    if (toAdd.length === 0) return;
+    addCards(toAdd);
+    setSentenceResult(null);
   }
 
   async function extract() {
@@ -4573,19 +4972,13 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     setLoading(true);
     setError("");
     try {
-      const base64 = await fileToBase64(file);
-      const mediaType = file.type || "image/jpeg";
       const categoryNames = categories.map((c) => c.name).join(", ");
       const system =
         "You help an intermediate self-taught Danish learner build flashcards from photos of text (book pages, signs, notes, apps). First, briefly note any grammar or sentence structures worth pointing out in this specific text (2-3 sentences, plain English) — skip this if the image is just a word list with nothing notable. Then extract every distinct Danish word or sentence visible, with a natural English translation for each, and the single best-fitting category for each item individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech as used here before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different items usually mix nouns, verbs, and other parts of speech, so don't give them all the same category. Keep the vocabulary list focused and useful — skip page numbers, headers, or noise. " +
         'Respond ONLY with JSON, no other text: {"grammarNotes": "...", "items": [{"danish": "...", "english": "...", "type": "word", "category": "..."}]} where "type" is "word" for single words/short phrases and "sentence" for full sentences. Use an empty string for grammarNotes if there is nothing worth noting. ' +
         "Existing categories to prefer if one fits: " +
         (categoryNames || "(none yet)");
-      const userText = "Extract Danish vocabulary and sentences from this image.";
-      const text =
-        backend === "gemini"
-          ? await callGeminiImage(system, userText, base64, mediaType)
-          : await callClaudeImage(system, userText, base64, mediaType);
+      const text = await callVision(system, "Extract Danish vocabulary and sentences from this image.");
       const parsed = parseJSONLoose(text);
       const list = parsed.items || [];
       // Resolve each suggested category name to a real id up front (same
@@ -4624,8 +5017,6 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     addCards(toAdd);
     setItems([]);
     setGrammarNotes("");
-    setFile(null);
-    setPreview(null);
   }
 
   if (backend === undefined) {
@@ -4650,9 +5041,11 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
     );
   }
 
+  const lookupIsWordLike = lookupResult && lookupResult.da && lookupResult.da.trim().split(/\s+/).length <= 4;
+
   return (
     <div>
-      {(file || items.length > 0) && (
+      {(file || items.length > 0 || lookupResult || sentenceResult) && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
           <button
             onClick={clearAll}
@@ -4663,8 +5056,8 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
         </div>
       )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
-        Upload a photo or screenshot of Danish text — a book, an app, a sign — and pull out words or sentences to add
-        to your deck.
+        Choose or take a photo of Danish text — a book, an app, a sign — then translate it, get the grammar
+        explained, or pull out the key vocabulary worth learning from it.
       </div>
 
       <label
@@ -4707,18 +5100,241 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
         )}
       </label>
 
-      {file && (
-        <button
-          onClick={extract}
-          disabled={loading}
-          style={{ ...smallBtn("var(--fjord)"), width: "100%", padding: "11px", fontSize: 14, marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 7 }}
+      {!preview && (
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            width: "100%",
+            border: "1px solid var(--line)",
+            background: "var(--card)",
+            borderRadius: 10,
+            padding: "10px",
+            marginTop: 8,
+            fontFamily: "var(--sans)",
+            fontSize: 13.5,
+            color: "var(--muted)",
+            cursor: "pointer",
+          }}
         >
-          {loading ? <Icon.Loader2 size={15} className="spin" /> : <Icon.Camera size={15} />}
-          {loading ? "Reading image…" : "Extract words"}
-        </button>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={pickFile}
+            style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", border: 0 }}
+          />
+          <Icon.Camera size={15} />
+          Take a photo
+        </label>
       )}
 
+      {file && (
+        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+          <button
+            onClick={translate}
+            disabled={lookupLoading}
+            style={{ ...smallBtn("var(--fjord)"), flex: 1, padding: "9px 4px", fontSize: 12.5, display: "flex", justifyContent: "center", alignItems: "center", gap: 5 }}
+          >
+            {lookupLoading ? <Icon.Loader2 size={12} className="spin" /> : null}
+            {lookupLoading ? "Reading…" : "Translate"}
+          </button>
+          <button
+            onClick={analyzeSentence}
+            disabled={sentenceLoading}
+            style={{ ...smallBtn("#8C6FA0"), flex: 1, padding: "9px 4px", fontSize: 12.5, display: "flex", justifyContent: "center", alignItems: "center", gap: 5 }}
+          >
+            {sentenceLoading ? <Icon.Loader2 size={12} className="spin" /> : null}
+            {sentenceLoading ? "Reading…" : "Analyze sentence"}
+          </button>
+          <button
+            onClick={extract}
+            disabled={loading}
+            style={{ ...smallBtn("var(--rust)"), flex: 1, padding: "9px 4px", fontSize: 12.5, display: "flex", justifyContent: "center", alignItems: "center", gap: 5 }}
+          >
+            {loading ? <Icon.Loader2 size={12} className="spin" /> : null}
+            {loading ? "Reading…" : "Extract text"}
+          </button>
+        </div>
+      )}
+
+      <AIErrorNote message={lookupError} onOpenSettings={onOpenSettings} />
+      <AIErrorNote message={sentenceError} onOpenSettings={onOpenSettings} />
       <AIErrorNote message={error} onOpenSettings={onOpenSettings} />
+
+      {lookupResult && (
+        <div style={{ position: "relative", marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
+          {lookupIsWordLike ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontFamily: "var(--sans)", fontSize: 14, color: "var(--terracotta)" }}>{lookupResult.da}</span>
+              {speechSupported() && (
+                <button
+                  onClick={() => speakDanish(lookupResult.da)}
+                  aria-label="Pronounce this"
+                  style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+                >
+                  <Icon.Volume2 size={17} />
+                </button>
+              )}
+              <button
+                onClick={() => openInsight(lookupResult.da, lookupResult.en)}
+                aria-label="Explore related words"
+                style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+              >
+                <Icon.Lightbulb size={17} />
+              </button>
+            </div>
+          ) : (
+            speechSupported() && (
+              <button
+                onClick={() => speakDanish(lookupResult.da)}
+                aria-label="Pronounce this"
+                style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: "4px 0", fontFamily: "var(--sans)", fontSize: 12, marginBottom: 4 }}
+              >
+                <Icon.Volume2 size={15} /> Listen to the Danish
+              </button>
+            )
+          )}
+          <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.5, marginBottom: 10, color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+            <select
+              value={lookupCategory.startsWith("__new__") ? "" : lookupCategory}
+              onChange={(e) => {
+                if (e.target.value === "__new__cat") {
+                  const name = window.prompt ? window.prompt("New category name") : "";
+                  if (name && name.trim()) setLookupCategory("__new__" + name.trim());
+                  return;
+                }
+                setLookupCategory(e.target.value);
+              }}
+              style={{ ...inputStyle, width: "auto", padding: "6px 8px", fontSize: 12.5 }}
+            >
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+              <option value="__new__cat">+ New category…</option>
+            </select>
+            <button
+              onClick={addLookup}
+              aria-label="Add word"
+              style={{ border: "none", background: "var(--rust)", color: "#FBFAF7", borderRadius: 999, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+            >
+              <Icon.Plus size={16} />
+            </button>
+          </div>
+
+          {insightFor && (
+            <CenteredOverlay onClose={() => setInsightFor(null)} maxWidth={380}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{insightFor}</div>
+                <button onClick={() => setInsightFor(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+                  <Icon.X size={16} />
+                </button>
+              </div>
+              {insightLoading ? (
+                <div style={{ textAlign: "center", padding: "16px 0" }}>
+                  <Icon.Loader2 className="spin" size={18} color="var(--muted)" />
+                </div>
+              ) : insightError ? (
+                <AIErrorNote message={insightError} onOpenSettings={onOpenSettings} />
+              ) : (
+                <div style={{ background: "var(--paper)", borderRadius: 8, padding: "10px 12px", fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(insightText)}</div>
+              )}
+            </CenteredOverlay>
+          )}
+        </div>
+      )}
+
+      {sentenceResult && (
+        <CenteredOverlay onClose={() => setSentenceResult(null)} maxWidth={460}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+            <button onClick={() => setSentenceResult(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+              <Icon.X size={18} />
+            </button>
+          </div>
+          {sentenceResult.correctionNote && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+                background: "#FBECE6",
+                border: "1px solid var(--rust)",
+                borderRadius: 8,
+                padding: "9px 11px",
+                marginBottom: 12,
+              }}
+            >
+              <Icon.HelpCircle size={15} color="var(--rust)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontFamily: "var(--sans)", fontSize: 13, lineHeight: 1.45, color: "var(--rust)" }}>{renderInlineMarkdown(sentenceResult.correctionNote)}</span>
+            </div>
+          )}
+          {sentenceResult.grammarPoints.map((point, i) => (
+            <div key={i} style={{ borderTop: i > 0 ? "1px solid var(--line)" : "none", paddingTop: i > 0 ? 16 : 0, marginTop: i > 0 ? 16 : 0 }}>
+              <div style={{ fontFamily: "var(--serif)", fontSize: 17, marginBottom: 6 }}>{point.grammarName}</div>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 10 }}>{renderInlineMarkdown(point.explanation)}</div>
+              <label style={rowCheck}>
+                <input
+                  type="checkbox"
+                  checked={!!(sentenceSelected[i] && sentenceSelected[i].grammar)}
+                  onChange={(e) => setSentenceSelected({ ...sentenceSelected, [i]: { ...sentenceSelected[i], grammar: e.target.checked } })}
+                />
+                <span style={{ fontFamily: "var(--sans)", fontSize: 12.5 }}>Save this as a grammar card</span>
+              </label>
+              <div style={{ borderTop: "1px solid var(--line)", margin: "10px 0", paddingTop: 10 }}>
+                <label style={rowCheck}>
+                  <input
+                    type="checkbox"
+                    checked={!!(sentenceSelected[i] && sentenceSelected[i].main)}
+                    onChange={(e) => setSentenceSelected({ ...sentenceSelected, [i]: { ...sentenceSelected[i], main: e.target.checked } })}
+                  />
+                  <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
+                    <b style={{ color: "var(--terracotta)" }}>{point.mainExample.da}</b> — <span style={{ color: "var(--sage)" }}>{point.mainExample.en}</span>
+                  </span>
+                </label>
+                {(point.examples || []).map((ex, j) => (
+                  <label key={j} style={rowCheck}>
+                    <input
+                      type="checkbox"
+                      checked={!!(sentenceSelected[i] && sentenceSelected[i].examples && sentenceSelected[i].examples[j])}
+                      onChange={(e) =>
+                        setSentenceSelected({
+                          ...sentenceSelected,
+                          [i]: { ...sentenceSelected[i], examples: { ...(sentenceSelected[i] && sentenceSelected[i].examples), [j]: e.target.checked } },
+                        })
+                      }
+                    />
+                    <span style={{ fontFamily: "var(--sans)", fontSize: 13.5 }}>
+                      <span style={{ color: "var(--terracotta)" }}>{ex.da}</span> — <span style={{ color: "var(--sage)" }}>{ex.en}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <Field label="Category">
+                <CategoryPicker
+                  categories={categories}
+                  value={(pointCategory[i] || "").startsWith("__new__") ? "" : pointCategory[i] || ""}
+                  onChange={(v) => setPointCategory({ ...pointCategory, [i]: v })}
+                  allowNew
+                  onAddCategory={(name) => addCategory(name)}
+                />
+                {(pointCategory[i] || "").startsWith("__new__") && (
+                  <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--fjord)", marginTop: 4 }}>
+                    Will create new category: {(pointCategory[i] || "").replace("__new__", "")}
+                  </div>
+                )}
+              </Field>
+            </div>
+          ))}
+          <button onClick={addSentenceSelected} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 16 }}>
+            Add selected to deck
+          </button>
+        </CenteredOverlay>
+      )}
 
       {items.length > 0 && (
         <CenteredOverlay onClose={() => setItems([])} maxWidth={460}>
@@ -4740,8 +5356,7 @@ function PhotoPanel({ categories, addCategory, addCards, onOpenSettings }) {
               <label style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
                 <input type="checkbox" checked={!!selected[i]} onChange={(e) => setSelected({ ...selected, [i]: e.target.checked })} />
                 <span style={{ fontFamily: "var(--sans)", fontSize: 13.5, minWidth: 0 }}>
-                  <span style={{ color: "var(--terracotta)" }}>{it.danish}</span> —{" "}
-                  <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{it.english}</span>
+                  <span style={{ color: "var(--terracotta)" }}>{it.danish}</span> — <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{it.english}</span>
                 </span>
               </label>
               <select
