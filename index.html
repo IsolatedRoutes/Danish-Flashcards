@@ -1933,8 +1933,6 @@ function DanishFlashcards() {
           onOpenBackup={() => setShowBackup((s) => !s)}
           settingsOpen={showSettings}
           backupOpen={showBackup}
-          knownWordCount={cards.filter((c) => c.type === "word" && c.known).length}
-          totalWordCount={cards.filter((c) => c.type === "word").length}
         />
         {showSettings && (
           <CenteredOverlay onClose={() => setShowSettings(false)}>
@@ -2039,7 +2037,7 @@ function Shell({ children }) {
   );
 }
 
-function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen, knownWordCount, totalWordCount }) {
+function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen }) {
   return (
     <div style={{ padding: "22px 18px 14px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2065,11 +2063,6 @@ function Header({ onOpenSettings, onOpenBackup, settingsOpen, backupOpen, knownW
             {settingsOpen ? <Icon.ChevronUp size={11} /> : null}
           </button>
         </div>
-      </div>
-      <div style={{ marginTop: 7, fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>
-        <span style={{ color: "var(--sage)", fontWeight: 700 }}>{knownWordCount.toLocaleString()} known</span>
-        {" · "}
-        {Math.max(0, totalWordCount - knownWordCount).toLocaleString()} to go
       </div>
     </div>
   );
@@ -2210,6 +2203,11 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   }, [catFilter, starredOnly, unknownOnly, sessionKey]);
 
   const current = cards.find((c) => c.id === poolIds[idx]);
+  // Word-only, computed fresh from live cards on every render — always
+  // accurate and auto-updates the moment any card's known status or the
+  // deck itself changes, rather than being scoped to whatever's in the
+  // current filtered session.
+  const knownWordCount = cards.filter((c) => c.type === "word" && c.known).length;
   // Grammar cards store an English name in front, not Danish — speaking
   // that mangles English phonetically instead of pronouncing anything
   // real. Use the first example's genuine Danish sentence instead.
@@ -2369,13 +2367,14 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     <div>
       <div style={{ marginBottom: 10 }}>
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={unknownOnly} onChange={(e) => setUnknownOnly(e.target.checked)} />
+          <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Unknown only</span>
+        </label>
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <Pill color="var(--terracotta)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
           ★ Starred
-        </Pill>
-        <Pill color="var(--sage)" active={unknownOnly} onClick={() => setUnknownOnly(!unknownOnly)}>
-          Unknown
         </Pill>
         <button
           onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
@@ -2458,8 +2457,13 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
         </div>
       ) : (
         <>
-          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Card {idx + 1} of {poolIds.length}
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 8, display: "flex", gap: 16 }}>
+            <span>
+              Card {idx + 1} of {poolIds.length}
+            </span>
+            <span>
+              <span style={{ color: "var(--sage)", fontWeight: 700 }}>{knownWordCount}</span> known
+            </span>
           </div>
           <div
             key={current.id}
