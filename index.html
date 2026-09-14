@@ -640,6 +640,34 @@ const STARTER_WORDS = {
     ["et batteri","a battery"],["en opladning","charging"],["et skærmbillede","a screenshot"],["et hardware","hardware"],["en robot","a robot"],
     ["en kunstig intelligens","artificial intelligence"],
   ],
+  "Abstract Concepts & Opinions": [
+    ["en hensigt","an intention"],["en antagelse","an assumption"],["en betragtning","a consideration"],["en mening","an opinion"],["en holdning","an attitude"],
+    ["et synspunkt","a viewpoint"],["en påstand","a claim"],["et argument","an argument"],["en årsag","a reason"],["en konsekvens","a consequence"],
+    ["et resultat","a result"],["en mulighed","a possibility"],["en fordel","an advantage"],["en ulempe","a disadvantage"],["en udfordring","a challenge"],
+    ["en forskel","a difference"],["en lighed","a similarity"],["et forhold","a relationship"],["en sammenhæng","a connection"],["en betydning","a meaning"],
+    ["en tendens","a trend"],["en udvikling","a development"],["en forandring","a change"],["en forbedring","an improvement"],["en forværring","a worsening"],
+    ["et formål","a purpose"],["en beslutning","a decision"],["et valg","a choice"],["en handling","an action"],["en indsats","an effort"],
+    ["en fremgang","progress"],["et fremskridt","an advance"],["en oplevelse","an experience"],["et indtryk","an impression"],["en vurdering","an assessment"],
+    ["en forventning","an expectation"],["en skuffelse","a disappointment"],["en bekymring","a worry"],["en tvivl","a doubt"],["en overbevisning","a conviction"],
+    ["en værdi","a value"],["et princip","a principle"],["en teori","a theory"],["et begreb","a concept"],["en påvirkning","an influence"],
+    ["en risiko","a risk"],["en fordom","a prejudice"],
+  ],
+  "Society & Culture": [
+    ["en straf","a punishment"],["en forpligtelse","an obligation"],["en institution","an institution"],["en minoritet","a minority"],["et flertal","a majority"],
+    ["en afstemning","a vote"],["en kultur","a culture"],["en tradition","a tradition"],["en regel","a rule"],["en pligt","a duty"],
+    ["en frihed","a freedom"],["en ligestilling","an equality"],["en økonomi","an economy"],["en valgkreds","a constituency"],["en borger","a citizen"],
+    ["en organisation","an organization"],["en industri","an industry"],["en handel","trade"],["en skat","a tax"],["en indkomst","an income"],
+    ["en fattigdom","poverty"],["en rigdom","wealth"],["en generation","a generation"],["en befolkning","a population"],["et fællesskab","a community"],
+    ["en integration","an integration"],["en identitet","an identity"],["en religion","a religion"],["en ytringsfrihed","a freedom of speech"],["en debat","a debate"],
+    ["en konflikt","a conflict"],["en krise","a crisis"],["en protest","a protest"],["en demonstration","a demonstration"],["en rettighed","an entitlement"],
+    ["en pligtfølelse","a sense of duty"],
+  ],
+  "Nature & Environment": [
+    ["en biodiversitet","a biodiversity"],["en udryddelse","an extinction"],["en emission","an emission"],["en klode","a planet"],["en forurening","a pollution"],
+    ["en genbrug","a recycling"],["en bæredygtighed","a sustainability"],["en ressource","a resource"],["en energi","an energy"],["et landskab","a landscape"],
+    ["en art","a species"],["et økosystem","an ecosystem"],["en klimaforandring","a climate change"],["en drivhuseffekt","a greenhouse effect"],["en naturkatastrofe","a natural disaster"],
+    ["en oversvømmelse","a flood"],["en tørke","a drought"],["en skovbrand","a wildfire"],
+  ],
 };
 
 // A small, carefully-vetted set of core Danish grammar points, seeded the
@@ -796,7 +824,7 @@ function buildStarterAdditions(existingCategories, existingFrontsSet) {
 
 // Shared between the Study and Library "explore related words" popups.
 const WORD_INSIGHT_SYSTEM_PROMPT =
-  "A Danish learner tapped a word or short phrase on their flashcard because they want to understand it more deeply. Explain it clearly and completely in plain English, in about 4-6 short flowing sentences (no headers, no bullet points): start with what kind of word it is and what it means; then include whichever of these genuinely applies — for a noun, its indefinite/definite singular and plural forms (e.g. en hund, hunden, hunde, hundene), noting plainly if it has no natural plural; for a verb, its principal forms (infinitive, present, past, past participle); for a preposition, adverb, or other small function word, 2-3 other common Danish words that share its root or pattern, and what that shared pattern actually means for the learner. Always finish your last sentence completely — never trail off or stop mid-thought.";
+  "A Danish learner tapped a word or short phrase on their flashcard because they want to understand it more deeply. Explain it clearly and completely in plain English, in about 4-6 short flowing sentences (no headers, no bullet points): start with what kind of word it is and what it means. If it's a noun, you MUST explicitly state all of these, every time, even if some feel obvious: its gender (whether it's an en-word or et-word), its indefinite singular form, its definite singular form, its indefinite plural form, and its definite plural form — noting plainly if it has no natural plural rather than skipping the point. For a verb, give its principal forms (infinitive, present, past, past participle). For a preposition, adverb, or other small function word, give 2-3 other common Danish words that share its root or pattern, and what that shared pattern actually means for the learner. Always finish your last sentence completely — never trail off or stop mid-thought.";
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -1969,6 +1997,10 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   }, [catFilter, starredOnly, unknownOnly, sessionKey]);
 
   const current = cards.find((c) => c.id === poolIds[idx]);
+  // Grammar cards store an English name in front, not Danish — speaking
+  // that mangles English phonetically instead of pronouncing anything
+  // real. Use the first example's genuine Danish sentence instead.
+  const currentSpeakableText = current && (current.type === "grammar" ? current.examples && current.examples[0] && current.examples[0].da : current.front);
 
   // Once a swipe (or a Back/Next tap) commits to leaving, the card
   // animates fully off-screen first, and only once that's visibly
@@ -2300,12 +2332,12 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
                       <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
                         {current.front}
                       </div>
-                      {speechSupported() && (
+                      {speechSupported() && currentSpeakableText && (
                         <button
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
-                            speakDanish(current.front);
+                            speakDanish(currentSpeakableText);
                           }}
                           aria-label="Pronounce this"
                           style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
@@ -2346,12 +2378,12 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
                       <div style={{ fontFamily: "var(--serif)", fontSize: current.type === "word" ? 30 : 21, lineHeight: 1.35, color: "var(--terracotta)" }}>
                         {current.front}
                       </div>
-                      {speechSupported() && (
+                      {speechSupported() && currentSpeakableText && (
                         <button
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
-                            speakDanish(current.front);
+                            speakDanish(currentSpeakableText);
                           }}
                           aria-label="Pronounce this"
                           style={{ border: "none", background: "none", color: "var(--terracotta)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
@@ -2781,6 +2813,12 @@ function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, o
   const [notes, setNotes] = useState(card.notes || "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const catName = categories.find((c) => c.id === card.category)?.name || "Uncategorized";
+  // Grammar cards store an English name in front (e.g. "V2 word order"),
+  // not Danish — speaking that through a Danish voice just mangles
+  // English phonetically rather than pronouncing anything real. Their
+  // examples do contain genuine Danish, so use the first one instead;
+  // if there isn't one, there's nothing real to speak, so hide the button.
+  const speakableText = card.type === "grammar" ? card.examples && card.examples[0] && card.examples[0].da : card.front;
 
   if (editing) {
     return (
@@ -2837,8 +2875,8 @@ function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, o
           {catName}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {speechSupported() && (
-            <button onClick={() => speakDanish(card.front)} style={iconBtn} aria-label="Pronounce this">
+          {speechSupported() && speakableText && (
+            <button onClick={() => speakDanish(speakableText)} style={iconBtn} aria-label="Pronounce this">
               <Icon.Volume2 size={15} />
             </button>
           )}
@@ -3319,10 +3357,29 @@ function AISettingsPanel({ onClose }) {
         }}
       >
         <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Anthropic key</div>
-        <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 12 }}>
+        <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
           Best quality for Danish specifically, small per-use cost (typically well under a dollar for normal use).
-          From console.anthropic.com.
         </div>
+        {!savedKey && (
+          <a
+            href="https://console.anthropic.com/settings/keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontFamily: "var(--sans)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: "var(--rust)",
+              textDecoration: "none",
+              marginBottom: 10,
+            }}
+          >
+            Get a key at console.anthropic.com ↗
+          </a>
+        )}
         {savedKey ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--fjord)", fontWeight: 600 }}>
@@ -4084,8 +4141,11 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, give a natural, fluent English translation of the full passage. Then briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech as used in this passage before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
-        "Text:\n" +
+        "You help an intermediate, self-taught Danish learner build their vocabulary. The input is EITHER (a) a passage of Danish or English text to analyze, OR (b) a request asking you to generate a specific set of Danish vocabulary or phrases on a topic (e.g. \"give me 15 words for visiting a spa in Copenhagen\"). Work out which one it is, then respond accordingly. " +
+          "If it's a passage: give a natural, fluent English translation of the full passage in fullTranslation, and in grammarNotes briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. " +
+          "If it's a request for vocabulary on a topic: leave fullTranslation as an empty string, and use grammarNotes for a single brief sentence describing what the list covers instead. Generate a genuinely useful, natural set of Danish vocabulary and short phrases for that topic — aim for the number requested if one was given, otherwise around 12-15 — mixing relevant nouns, verbs, and common phrases rather than a random word dump. " +
+          "Either way, suggest the key vocabulary worth learning (not every word, if it's a passage), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words can and should get different categories — don't give them all the same one.",
+        "Input:\n" +
           text.slice(0, 3000) +
           "\n\nExisting categories to prefer if one fits: " +
           (categoryNames || "(none yet)") +
@@ -4165,12 +4225,13 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
         Type or paste anything — a word, a sentence, or a longer passage — then translate it, get the grammar
-        explained, or pull out the key vocabulary worth learning from it.
+        explained, or pull out the key vocabulary worth learning from it. You can also ask for a set of words on a
+        topic, like "15 words for visiting a spa in Copenhagen", and Extract text will generate them instead.
       </div>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder='e.g. "hyggelig", "hvis jeg kunne, ville jeg", or a longer passage…'
+        placeholder='e.g. "hyggelig", a passage, or "words for ordering coffee"…'
         style={{ ...inputStyle, minHeight: 100 }}
       />
       <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
@@ -4206,36 +4267,39 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
 
       {lookupResult && (
         <div style={{ position: "relative", marginTop: 12, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px" }}>
-          <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.5, marginBottom: 10 }}>
-            {lookupIsWordLike && (
-              <>
-                <span style={{ color: "var(--terracotta)" }}>{lookupResult.da}</span>
-                <br />
-              </>
-            )}
-            <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {lookupIsWordLike ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontFamily: "var(--sans)", fontSize: 14, color: "var(--terracotta)" }}>{lookupResult.da}</span>
               {speechSupported() && (
                 <button
                   onClick={() => speakDanish(lookupResult.da)}
                   aria-label="Pronounce this"
                   style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
                 >
-                  <Icon.Volume2 size={18} />
+                  <Icon.Volume2 size={17} />
                 </button>
               )}
-              {lookupIsWordLike && (
-                <button
-                  onClick={() => openInsight(lookupResult.da, lookupResult.en)}
-                  aria-label="Explore related words"
-                  style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
-                >
-                  <Icon.Lightbulb size={18} />
-                </button>
-              )}
+              <button
+                onClick={() => openInsight(lookupResult.da, lookupResult.en)}
+                aria-label="Explore related words"
+                style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: 4, display: "flex", flexShrink: 0 }}
+              >
+                <Icon.Lightbulb size={17} />
+              </button>
             </div>
+          ) : (
+            speechSupported() && (
+              <button
+                onClick={() => speakDanish(lookupResult.da)}
+                aria-label="Pronounce this"
+                style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", color: "var(--muted)", cursor: "pointer", padding: "4px 0", fontFamily: "var(--sans)", fontSize: 12, marginBottom: 4 }}
+              >
+                <Icon.Volume2 size={15} /> Listen to the Danish
+              </button>
+            )
+          )}
+          <div style={{ fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.5, marginBottom: 10, color: "var(--sage)", fontStyle: "italic" }}>{lookupResult.en}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <select
                 value={lookupCategory.startsWith("__new__") ? "" : lookupCategory}
