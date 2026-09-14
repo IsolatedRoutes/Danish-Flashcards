@@ -1352,6 +1352,63 @@ async function callGeminiImage(system, userText, base64, mediaType) {
   });
 }
 
+// Chrome's built-in on-device Translator API (Chrome 138+, desktop only —
+// not available on mobile, and not on Safari/Firefox/Edge either, since
+// it's tied to Chrome's own bundled on-device model, not a general web
+// standard). An entirely optional, opt-in extra: when enabled and
+// available, it powers just the Translate button, with zero network call
+// and zero cost. Everything else in the app still uses whichever main AI
+// engine is configured, since this API only translates — it can't do the
+// freeform reasoning Sentence analysis, Extract text, Chat, or Photo need.
+function chromeTranslatorSupported() {
+  return typeof self !== "undefined" && "Translator" in self;
+}
+
+function chromeLanguageDetectorSupported() {
+  return typeof self !== "undefined" && "LanguageDetector" in self;
+}
+
+async function chromeTranslatorAvailability(sourceLanguage, targetLanguage) {
+  if (!chromeTranslatorSupported()) return "unavailable";
+  try {
+    return await Translator.availability({ sourceLanguage, targetLanguage });
+  } catch (e) {
+    return "unavailable";
+  }
+}
+
+// Detects whether the input is Danish or English using Chrome's on-device
+// Language Detector API (when available), then translates it with the
+// on-device Translator API in the correct direction — both fully local.
+async function translateWithChromeTranslator(text, onProgress) {
+  if (!chromeTranslatorSupported()) throw new Error("CHROME_TRANSLATOR_UNSUPPORTED");
+  let sourceLanguage = "da";
+  if (chromeLanguageDetectorSupported()) {
+    try {
+      const detectorAvailability = await LanguageDetector.availability();
+      if (detectorAvailability !== "unavailable") {
+        const detector = await LanguageDetector.create();
+        const results = await detector.detect(text);
+        const top = results && results[0];
+        if (top && String(top.detectedLanguage || "").toLowerCase().startsWith("en")) sourceLanguage = "en";
+      }
+    } catch (e) {
+      // Detection failing just means we fall back to assuming Danish —
+      // translation itself still proceeds normally.
+    }
+  }
+  const targetLanguage = sourceLanguage === "da" ? "en" : "da";
+  const translator = await Translator.create({
+    sourceLanguage,
+    targetLanguage,
+    monitor(m) {
+      if (onProgress) m.addEventListener("downloadprogress", (e) => onProgress(e.loaded));
+    },
+  });
+  const translation = await translator.translate(text);
+  return sourceLanguage === "da" ? { da: text, en: translation } : { da: translation, en: text };
+}
+
 async function callOllamaText(system, userText, opts) {
   const maxTokens = (opts && opts.maxTokens) || 1500;
   const history = (opts && opts.history) || [];
@@ -2367,15 +2424,18 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     <div>
       <div style={{ marginBottom: 10 }}>
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
-        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, cursor: "pointer" }}>
-          <input type="checkbox" checked={unknownOnly} onChange={(e) => setUnknownOnly(e.target.checked)} />
-          <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Unknown only</span>
-        </label>
+        <div style={{ display: "flex", gap: 16, marginTop: 6, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={unknownOnly} onChange={(e) => setUnknownOnly(e.target.checked)} style={{ accentColor: "var(--sage)" }} />
+            <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Unknown only</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={starredOnly} onChange={(e) => setStarredOnly(e.target.checked)} style={{ accentColor: "var(--sage)" }} />
+            <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>★ Starred</span>
+          </label>
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <Pill color="var(--terracotta)" active={starredOnly} onClick={() => setStarredOnly(!starredOnly)}>
-          ★ Starred
-        </Pill>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
         <button
           onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
           style={{
@@ -2391,7 +2451,6 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
             whiteSpace: "nowrap",
             color: "var(--muted)",
             cursor: "pointer",
-            marginLeft: "auto",
           }}
         >
           {langDir === "da-first" ? (
@@ -3501,6 +3560,10 @@ function AISettingsPanel({ onClose }) {
   const [confirmingModel, setConfirmingModel] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState(LOCAL_MODEL_ID);
   const [savedOllamaConfig, setSavedOllamaConfig] = useState(null);
+  const [chromeTranslatorEnabled, setChromeTranslatorEnabledState] = useState(false);
+  const [confirmingChromeTranslatorDownload, setConfirmingChromeTranslatorDownload] = useState(false);
+  const [chromeTranslatorLoading, setChromeTranslatorLoading] = useState(false);
+  const [chromeTranslatorDownloadProgress, setChromeTranslatorDownloadProgress] = useState("");
   const [ollamaUrlInput, setOllamaUrlInput] = useState("http://localhost:11434");
   const [ollamaModelInput, setOllamaModelInput] = useState("llama3.2");
 
@@ -3514,6 +3577,7 @@ function AISettingsPanel({ onClose }) {
         const raw = await storeGet("ollamaConfig");
         if (raw) setSavedOllamaConfig(JSON.parse(raw));
       } catch (e) {}
+      setChromeTranslatorEnabledState((await storeGet("chromeTranslatorEnabled")) === "true");
       // Anthropic is the default, always-visible option now — only
       // auto-expand "Use something else instead" if a different engine
       // is the one actually in use, so it's not hidden from its owner.
@@ -3540,6 +3604,53 @@ function AISettingsPanel({ onClose }) {
     setSavedOllamaConfig(config);
     await chooseEngine("ollama");
     onClose("ollama");
+  }
+
+  async function toggleChromeTranslator(next) {
+    if (!next) {
+      // Turning it off never needs confirmation — nothing to download.
+      setChromeTranslatorEnabledState(false);
+      await storeSet("chromeTranslatorEnabled", "false");
+      return;
+    }
+    setChromeTranslatorLoading(true);
+    setError("");
+    try {
+      const [daEn, enDa] = await Promise.all([chromeTranslatorAvailability("da", "en"), chromeTranslatorAvailability("en", "da")]);
+      const needsDownload = daEn === "downloadable" || daEn === "downloading" || enDa === "downloadable" || enDa === "downloading";
+      if (needsDownload && !confirmingChromeTranslatorDownload) {
+        // Ask before downloading anything, same as the local model.
+        setConfirmingChromeTranslatorDownload(true);
+        setChromeTranslatorLoading(false);
+        return;
+      }
+      // Pre-warm both directions now, so the actual Translate button never
+      // has to trigger a surprise download later.
+      await Promise.all([
+        Translator.create({
+          sourceLanguage: "da",
+          targetLanguage: "en",
+          monitor(m) {
+            m.addEventListener("downloadprogress", (e) => setChromeTranslatorDownloadProgress(Math.round(e.loaded * 100) + "%"));
+          },
+        }),
+        Translator.create({
+          sourceLanguage: "en",
+          targetLanguage: "da",
+          monitor(m) {
+            m.addEventListener("downloadprogress", (e) => setChromeTranslatorDownloadProgress(Math.round(e.loaded * 100) + "%"));
+          },
+        }),
+      ]);
+      setChromeTranslatorEnabledState(true);
+      await storeSet("chromeTranslatorEnabled", "true");
+      setConfirmingChromeTranslatorDownload(false);
+    } catch (e) {
+      setError("Couldn't set up Chrome's translator — it may not be available on this device or browser. Try again, or leave it off.");
+    } finally {
+      setChromeTranslatorLoading(false);
+      setChromeTranslatorDownloadProgress("");
+    }
   }
 
   async function saveGeminiKey() {
@@ -3802,6 +3913,47 @@ function AISettingsPanel({ onClose }) {
                   Connect
                 </button>
               </div>
+            )}
+          </div>
+
+          <div style={{ border: "1.5px solid " + (chromeTranslatorEnabled ? "var(--fjord)" : "var(--line)"), borderRadius: 10, padding: 14, marginTop: 10 }}>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Chrome's built-in translator</div>
+            <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>
+              Free, entirely on-device, zero network call — but desktop Chrome only (Chrome 138+). Not available on
+              iPhone, Android, Safari, Firefox, or Edge, since it's tied to Chrome's own bundled model. When it's on,
+              only the Translate button uses it; everything else still uses your main AI above.
+            </div>
+            {!chromeTranslatorSupported() ? (
+              <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", fontStyle: "italic" }}>
+                Not available in this browser.
+              </div>
+            ) : confirmingChromeTranslatorDownload ? (
+              <div>
+                <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+                  This downloads a small language pack to this browser the first time. Continue?
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => toggleChromeTranslator(true)} disabled={chromeTranslatorLoading} style={smallBtn("var(--rust)")}>
+                    {chromeTranslatorLoading ? chromeTranslatorDownloadProgress || "Downloading…" : "Download & use"}
+                  </button>
+                  <button onClick={() => setConfirmingChromeTranslatorDownload(false)} style={smallBtn("#A8A395")}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: chromeTranslatorLoading ? "default" : "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={chromeTranslatorEnabled}
+                  disabled={chromeTranslatorLoading}
+                  onChange={(e) => toggleChromeTranslator(e.target.checked)}
+                  style={{ accentColor: "var(--fjord)" }}
+                />
+                <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>
+                  {chromeTranslatorLoading ? chromeTranslatorDownloadProgress || "Setting up…" : "Use it for Translate, when available"}
+                </span>
+              </label>
             )}
           </div>
         </>
@@ -4268,6 +4420,24 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setLookupError("");
     setLookupResult(null);
     try {
+      // When Chrome's on-device translator is enabled and available, try
+      // it first — free, instant, no network call. Any failure here is
+      // never a hard error, just a signal to fall through to the
+      // configured cloud AI below like normal.
+      if (chromeTranslatorSupported()) {
+        try {
+          const enabled = (await storeGet("chromeTranslatorEnabled")) === "true";
+          if (enabled) {
+            const result = await translateWithChromeTranslator(text.trim());
+            if (result && result.da && result.en && result.da.trim().toLowerCase() !== result.en.trim().toLowerCase()) {
+              setLookupResult(result);
+              return;
+            }
+          }
+        } catch (e) {
+          // fall through
+        }
+      }
       const reply = await callAI(
         "You translate between Danish and English for a language learner. Your first and most important job is to correctly identify which language the input is written in — it will not always be Danish, and treating it as Danish by default is a common mistake to avoid. Then translate it into the other language. Never invent or substitute a different word that merely looks similar to the input — if the input might contain a typo, translate your single best real-word interpretation of what was actually typed, not some other unrelated word. The translation must be ONLY in its target language — never repeat or include the original alongside it. If it's a single Danish noun (on either side), include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
         'Identify the language of this text, then translate it: "' +
