@@ -2432,15 +2432,25 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     <div>
       <div style={{ marginBottom: 10 }}>
         <CategoryPicker categories={categories} value={catFilter} onChange={setCatFilter} allowAll />
-        <div style={{ display: "flex", gap: 16, marginTop: 6, flexWrap: "wrap" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={unknownOnly} onChange={(e) => setUnknownOnly(e.target.checked)} style={{ accentColor: "var(--sage)" }} />
+        <div style={{ display: "flex", gap: 16, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setUnknownOnly(!unknownOnly)}>
+            <span
+              style={{
+                display: "inline-block",
+                width: 13,
+                height: 13,
+                borderRadius: "50%",
+                border: "1.8px solid " + (unknownOnly ? "var(--fjord)" : "#C9C4B6"),
+                background: unknownOnly ? "var(--fjord)" : "transparent",
+                flexShrink: 0,
+              }}
+            />
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Unknown only</span>
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={starredOnly} onChange={(e) => setStarredOnly(e.target.checked)} style={{ accentColor: "var(--sage)" }} />
-            <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>★ Starred</span>
-          </label>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setStarredOnly(!starredOnly)}>
+            <StarIcon size={14} filled={starredOnly} color={starredOnly ? "var(--rust)" : "#C9C4B6"} />
+            <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Starred</span>
+          </div>
         </div>
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
@@ -4154,6 +4164,10 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
     await persistWithRetry("chatHistory", JSON.stringify(next.slice(-40)));
   }
 
+  const [reviewingIdx, setReviewingIdx] = useState(null);
+  const [reviewSelected, setReviewSelected] = useState({});
+  const [reviewCategory, setReviewCategory] = useState({});
+
   async function send() {
     const text = input.trim();
     if (!text || sending) return;
@@ -4162,18 +4176,73 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
     setInput("");
     setSending(true);
     try {
+      const categoryNames = categories.map((c) => c.name).join(", ");
       const history = next.slice(-20).map((m) => ({ role: m.role, content: m.content }));
       const reply = await callAI(
-        "You are a knowledgeable Danish language reference for an intermediate, self-taught learner who has some foundational grammar gaps despite a decent vocabulary. Answer the question directly and concisely, then stop — don't pad the answer with extra context they didn't ask for, and never end with a follow-up question or an invitation to continue the conversation (no \"let me know if...\", no \"would you like...\", no checking in). This is a reference lookup, not a back-and-forth chat. Use Danish examples with English translations whenever they help. Don't over-explain simple things, but don't assume advanced grammar terms are familiar either.",
-        text,
-        { maxTokens: 800, history: history.slice(0, -1) }
+        "You are a knowledgeable Danish language reference for an intermediate, self-taught learner who has some foundational grammar gaps despite a decent vocabulary. For a plain question, answer directly and concisely in the reply field (1-3 sentences typically), then stop — don't pad with extra context they didn't ask for, and never end with a follow-up question or an invitation to continue (no \"let me know if...\", no \"would you like...\"). Use Danish examples with English translations whenever they help. " +
+          "Separately: if the learner is asking you to CREATE one or more flashcards — a new topic (\"give me 10 words for the doctor\"), a single word or phrase (\"make a flashcard for hyggelig\"), or something from earlier in this conversation (\"make a flashcard from that\", \"save the last one\", \"turn that into a card\") — put those in the flashcards array. Use the conversation history to work out what \"that\" or \"it\" refers to when needed. Leave reply empty, or at most a short one-line confirmation, when the request was purely for flashcards. " +
+          "For each flashcard: type is \"word\" (a single word or short phrase), \"sentence\" (a full sentence), or \"grammar\" (a rule or pattern that needs explaining rather than just translating — include up to 3 short example sentences for grammar only). Don't overuse \"grammar\" — most vocabulary requests are \"word\" or \"sentence\". For word/sentence, pick the single best-fitting category, being precise about actual part of speech first (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one; skip category for grammar. Include Danish grammatical articles (en/et) matched with a natural English article, omitting both for mass/uncountable nouns. " +
+          "If nothing was asked to be saved, leave flashcards as an empty array.\n\nExisting categories to prefer if one fits: " +
+          (categoryNames || "(none yet)"),
+        text +
+          '\n\nRespond ONLY with JSON, no other text: {"reply": "...", "flashcards": [{"type": "word", "front": "...", "back": "...", "category": "...", "examples": [{"da":"...","en":"..."}]}]} — omit category for grammar type; omit examples unless type is grammar; both reply and flashcards can be empty/[] as appropriate.',
+        { maxTokens: 1800, history: history.slice(0, -1) }
       );
-      persist([...next, { role: "assistant", content: reply }]);
+      const parsed = parseJSONLoose(reply);
+      const replyText = (parsed.reply || "").trim();
+      const rawFlashcards = Array.isArray(parsed.flashcards) ? parsed.flashcards : [];
+      // Resolve each suggested category name to a real id up front, same
+      // approach as everywhere else that generates a batch — so the
+      // review popup can use a plain dropdown per item.
+      const workingCategories = [...categories];
+      const flashcards = rawFlashcards.map((fc) => {
+        if (fc.type === "grammar") return { ...fc, categoryId: "grammar-lessons" };
+        const name = (fc.category || "Uncategorized").trim();
+        let existingCat = workingCategories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+        if (!existingCat) {
+          const id = addCategory(name);
+          existingCat = { id, name, custom: true };
+          workingCategories.push(existingCat);
+        }
+        return { ...fc, categoryId: existingCat.id };
+      });
+      persist([...next, { role: "assistant", content: replyText, flashcards }]);
     } catch (e) {
       persist([...next, { role: "assistant", content: apiErrorMessage(e), isError: true }]);
     } finally {
       setSending(false);
     }
+  }
+
+  function openReview(idx) {
+    const msg = messages[idx];
+    if (!msg || !msg.flashcards || msg.flashcards.length === 0) return;
+    const sel = {};
+    const cat = {};
+    msg.flashcards.forEach((fc, i) => {
+      sel[i] = true;
+      cat[i] = fc.categoryId || categories[0]?.id || "";
+    });
+    setReviewingIdx(idx);
+    setReviewSelected(sel);
+    setReviewCategory(cat);
+  }
+
+  function addReviewSelected() {
+    const msg = messages[reviewingIdx];
+    if (!msg) return;
+    const toAdd = [];
+    msg.flashcards.forEach((fc, i) => {
+      if (!reviewSelected[i]) return;
+      const catId = fc.type === "grammar" ? "grammar-lessons" : reviewCategory[i] || categories[0]?.id;
+      toAdd.push({ type: fc.type, front: fc.front, back: fc.back, category: catId, ...(fc.type === "grammar" ? { examples: fc.examples || [] } : {}) });
+      if (fc.type === "grammar" && fc.examples) {
+        fc.examples.slice(0, 3).forEach((ex) => toAdd.push({ type: "sentence", front: ex.da, back: ex.en, category: catId }));
+      }
+    });
+    if (toAdd.length === 0) return;
+    addCards(toAdd);
+    setReviewingIdx(null);
   }
 
   async function saveAsCard(idx) {
@@ -4259,24 +4328,48 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
         )}
         {messages.map((m, i) => (
           <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 8 }}>
-            <div
-              className={m.role === "assistant" && !m.isError ? "popover" : undefined}
-              style={{
-                maxWidth: "82%",
-                background: m.role === "user" ? "var(--fjord)" : "var(--card)",
-                color: m.role === "user" ? "#FBFAF7" : "var(--ink)",
-                border: m.role === "user" ? "none" : "1px solid var(--line)",
-                borderRadius: 14,
-                padding: "11px 14px",
-                fontFamily: "var(--sans)",
-                fontSize: 13.5,
-                lineHeight: 1.55,
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {m.role === "user" ? m.content : renderInlineMarkdown(m.content)}
-            </div>
-            {m.role === "assistant" && !m.isError && (
+            {(m.role === "user" || m.content) && (
+              <div
+                className={m.role === "assistant" && !m.isError ? "popover" : undefined}
+                style={{
+                  maxWidth: "82%",
+                  background: m.role === "user" ? "var(--fjord)" : "var(--card)",
+                  color: m.role === "user" ? "#FBFAF7" : "var(--ink)",
+                  border: m.role === "user" ? "none" : "1px solid var(--line)",
+                  borderRadius: 16,
+                  padding: "11px 14px",
+                  fontFamily: "var(--sans)",
+                  fontSize: 13.5,
+                  lineHeight: 1.55,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {m.role === "user" ? m.content : renderInlineMarkdown(m.content)}
+              </div>
+            )}
+            {m.role === "assistant" && !m.isError && m.flashcards && m.flashcards.length > 0 && (
+              <button
+                onClick={() => openReview(i)}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: "var(--fjord)",
+                  fontFamily: "var(--sans)",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  marginTop: 3,
+                  cursor: "pointer",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Icon.Plus size={11} />
+                Review {m.flashcards.length} flashcard{m.flashcards.length === 1 ? "" : "s"}
+              </button>
+            )}
+            {m.role === "assistant" && !m.isError && (!m.flashcards || m.flashcards.length === 0) && (
               <button
                 onClick={() => saveAsCard(i)}
                 disabled={savingIdx === i}
@@ -4339,7 +4432,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
           onKeyDown={(e) => {
             if (e.key === "Enter") send();
           }}
-          placeholder="Ask a question about Danish…"
+          placeholder="Ask me anything about Danish, or tell me to make a specific flashcard…"
           style={{ ...inputStyle, flex: 1 }}
         />
         <button
@@ -4361,6 +4454,58 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
           <Icon.Send size={16} />
         </button>
       </div>
+
+      {reviewingIdx !== null && messages[reviewingIdx] && (
+        <CenteredOverlay onClose={() => setReviewingIdx(null)} maxWidth={460}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+            <button onClick={() => setReviewingIdx(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}>
+              <Icon.X size={18} />
+            </button>
+          </div>
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
+            Uncheck any you don't want, and adjust the category if it's not quite right.
+          </div>
+          {messages[reviewingIdx].flashcards.map((fc, i) => (
+            <div key={i} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: i < messages[reviewingIdx].flashcards.length - 1 ? "1px solid var(--line)" : "none" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={!!reviewSelected[i]}
+                  onChange={(e) => setReviewSelected({ ...reviewSelected, [i]: e.target.checked })}
+                  style={{ marginTop: 3 }}
+                />
+                <span style={{ fontFamily: "var(--sans)", fontSize: 13.5, minWidth: 0 }}>
+                  {fc.type === "grammar" ? (
+                    <>
+                      <b>{fc.front}</b> — {fc.back}
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ color: "var(--terracotta)" }}>{fc.front}</span> — <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{fc.back}</span>
+                    </>
+                  )}
+                </span>
+              </label>
+              {fc.type !== "grammar" && (
+                <select
+                  value={reviewCategory[i] || ""}
+                  onChange={(e) => setReviewCategory({ ...reviewCategory, [i]: e.target.value })}
+                  style={{ ...inputStyle, width: "auto", padding: "5px 6px", fontSize: 11.5, marginLeft: 24 }}
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          ))}
+          <button onClick={addReviewSelected} style={{ ...smallBtn("var(--rust)"), width: "100%", padding: "10px", fontSize: 14, marginTop: 6 }}>
+            Add selected to deck
+          </button>
+        </CenteredOverlay>
+      )}
     </div>
   );
 }
@@ -4561,11 +4706,8 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     try {
       const categoryNames = categories.map((c) => c.name).join(", ");
       const reply = await callAI(
-        "You help an intermediate, self-taught Danish learner build their vocabulary. The input is EITHER (a) a passage of Danish or English text to analyze, OR (b) a request asking you to generate a specific set of Danish vocabulary or phrases on a topic (e.g. \"give me 15 words for visiting a spa in Copenhagen\"). Work out which one it is, then respond accordingly. " +
-          "If it's a passage: give a natural, fluent English translation of the full passage in fullTranslation, and in grammarNotes briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. " +
-          "If it's a request for vocabulary on a topic: leave fullTranslation as an empty string, and use grammarNotes for a single brief sentence describing what the list covers instead. Generate a genuinely useful, natural set of Danish vocabulary and short phrases for that topic — aim for the number requested if one was given, otherwise around 12-15 — mixing relevant nouns, verbs, and common phrases rather than a random word dump. " +
-          "Either way, suggest the key vocabulary worth learning (not every word, if it's a passage), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words can and should get different categories — don't give them all the same one.",
-        "Input:\n" +
+        "You help an intermediate, self-taught Danish learner understand a piece of Danish text. First, give a natural, fluent English translation of the full passage. Then briefly explain the notable grammar and sentence structures used in this specific passage — reference actual phrases from the text, 2-4 sentences, plain English, no jargon overload. Then suggest the key vocabulary genuinely worth learning from it (not every word), with a natural English translation for each, and the single best-fitting category for each word individually (e.g. by part of speech or topic) — be precise about each word's actual part of speech as used in this passage before choosing a category (don't confuse a verb with an adverb, an adjective with an adverb, or a noun with an adjective) — prefer an existing category if one genuinely fits, otherwise suggest a short new one. Different words in the same passage can and should get different categories — a text usually mixes nouns, verbs, and other parts of speech, so don't give them all the same category.",
+        "Text:\n" +
           text.slice(0, 3000) +
           "\n\nExisting categories to prefer if one fits: " +
           (categoryNames || "(none yet)") +
@@ -4645,13 +4787,12 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
       )}
       <div style={{ fontFamily: "var(--sans)", fontSize: 13, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
         Type or paste anything — a word, a sentence, or a longer passage — then translate it, get the grammar
-        explained, or pull out the key vocabulary worth learning from it. You can also ask for a set of words on a
-        topic, like "15 words for visiting a spa in Copenhagen", and Extract text will generate them instead.
+        explained, or pull out the key vocabulary worth learning from it.
       </div>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder='e.g. "hyggelig", a passage, or "words for ordering coffee"…'
+        placeholder='e.g. "hyggelig", "hvis jeg kunne, ville jeg", or a longer passage…'
         style={{ ...inputStyle, minHeight: 100 }}
       />
       <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
