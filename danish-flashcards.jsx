@@ -106,6 +106,12 @@ function makeIcon(renderChildren) {
 }
 
 const Icon = {
+  EyeOff: makeIcon(() => (
+    <>
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </>
+  )),
   Plus: makeIcon(() => (
     <>
       <line x1="12" y1="5" x2="12" y2="19" />
@@ -2263,15 +2269,23 @@ export default function DanishFlashcards() {
       // where duplicates get caught — matched on the Danish side, case-
       // and whitespace-insensitive, against both the existing deck and
       // other cards in this same batch.
-      const existingFronts = new Set(cards.map((c) => c.front.trim().toLowerCase()));
+      const existingFronts = new Map(cards.map((c) => [c.front.trim().toLowerCase(), c.id]));
       const seenInBatch = new Set();
       const duplicateFronts = [];
+      const touchedExistingIds = new Set();
       const stamped = newCards
         .filter((c) => c && c.front != null && c.back != null && String(c.front).trim() && String(c.back).trim())
         .filter((c) => {
           const key = String(c.front).trim().toLowerCase();
           if (existingFronts.has(key) || seenInBatch.has(key)) {
             duplicateFronts.push(String(c.front).trim());
+            // Trying to add a word that's already in the deck is a clear
+            // signal the learner wants to prioritize it right now — treat
+            // the existing card the same way a freshly-added one is
+            // treated below, so it cycles in soon rather than being
+            // silently dropped with no other effect.
+            const existingId = existingFronts.get(key);
+            if (existingId) touchedExistingIds.add(existingId);
             return false;
           }
           seenInBatch.add(key);
@@ -2284,11 +2298,12 @@ export default function DanishFlashcards() {
           examples: [],
           starred: false,
           known: false,
+          recentTouch: Date.now(),
           ...c,
           front: String(c.front).trim(),
           back: String(c.back).trim(),
         }));
-      if (stamped.length === 0) {
+      if (stamped.length === 0 && touchedExistingIds.size === 0) {
         if (duplicateFronts.length > 0) {
           showToast(
             duplicateFronts.length === 1
@@ -2300,15 +2315,30 @@ export default function DanishFlashcards() {
         }
         return;
       }
+      const withTouches = touchedExistingIds.size > 0 ? cards.map((c) => (touchedExistingIds.has(c.id) ? { ...c, recentTouch: Date.now() } : c)) : cards;
+      if (stamped.length === 0) {
+        // Nothing new to add, but existing cards were touched — persist
+        // that and let the learner know their existing card was
+        // prioritized instead, rather than staying silent about it.
+        const result = await persistCards(withTouches);
+        if (result.ok) {
+          showToast(
+            duplicateFronts.length === 1
+              ? '"' + duplicateFronts[0] + '" is already in your deck — moved it up for review'
+              : duplicateFronts.length + " already in your deck — moved them up for review"
+          );
+        }
+        return;
+      }
       // Wait for the save to actually succeed before claiming it did —
       // showing "Card added" regardless of whether it persisted was
       // actively misleading. persistCards shows its own failure toast,
       // so on failure we simply don't also claim success.
-      const result = await persistCards([...stamped, ...cards]);
+      const result = await persistCards([...stamped, ...withTouches]);
       if (result.ok) {
         let msg = stamped.length === 1 ? "Card added" : stamped.length + " cards added";
         if (duplicateFronts.length > 0) {
-          msg += " (" + duplicateFronts.length + (duplicateFronts.length === 1 ? " already in deck, skipped" : " already in deck, skipped") + ")";
+          msg += " (" + duplicateFronts.length + (duplicateFronts.length === 1 ? " already in deck, moved up for review" : " already in deck, moved up for review") + ")";
         }
         if (result.degraded && !degradedWarned.current) {
           degradedWarned.current = true;
@@ -2571,7 +2601,7 @@ function TabBar({ tab, setTab }) {
     { id: "study", label: "Study", icon: Icon.GraduationCap },
     { id: "library", label: "Library", icon: Icon.Layers },
     { id: "add", label: "Add", icon: Icon.Plus },
-    { id: "chat", label: "Chat", icon: Icon.MessageCircle },
+    { id: "chat", label: "Assistant", icon: Icon.MessageCircle },
   ];
   return (
     <div
@@ -2646,6 +2676,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const [catFilter, setCatFilter] = useState("all");
   const [starredOnly, setStarredOnly] = useState(false);
   const [unknownOnly, setUnknownOnly] = useState(true);
+  const [includeGrammar, setIncludeGrammar] = useState(false);
   const [langDir, setLangDir] = useState("da-first"); // da-first | en-first
   const [flipped, setFlipped] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -2669,6 +2700,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   const [askFor, setAskFor] = useState(null);
   const [askQuestion, setAskQuestion] = useState("");
   const [askAnswer, setAskAnswer] = useState("");
+  const [askModification, setAskModification] = useState(null);
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
 
@@ -2678,19 +2710,27 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
   // include it.
   useEffect(() => {
     const filtered = cards.filter((c) => {
+      if (c.ignored) return false;
+      if (!includeGrammar && c.type === "grammar") return false;
       if (unknownOnly && c.known) return false;
       if (catFilter !== "all" && c.category !== catFilter) return false;
       if (starredOnly && !c.starred) return false;
       return true;
     });
-    // Starred cards get extra copies in the pool so they naturally come
-    // up more often within a session, rather than at the same rate as
-    // everything else — without this, "starred" would only affect
-    // whether a card appears at all (via the Starred filter), not how
-    // often it's seen.
+    // Starred cards, and cards touched recently (just added, or an
+    // attempted duplicate-add signaling "I want to prioritize this"),
+    // get extra copies in the pool so they naturally come up more often
+    // within a session, rather than at the same rate as everything else.
+    // Recency fades after a few days rather than staying elevated forever
+    // — it's a temporary nudge, not a permanent priority the way starred
+    // is. Take the higher of the two rather than stacking them, so a
+    // card that's both doesn't balloon to an extreme repeat count.
+    const RECENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
     const ids = [];
     filtered.forEach((c) => {
-      const copies = c.starred ? 3 : 1;
+      const isRecent = c.recentTouch && now - c.recentTouch < RECENT_WINDOW_MS;
+      const copies = Math.max(c.starred ? 3 : 1, isRecent ? 3 : 1);
       for (let i = 0; i < copies; i++) ids.push(c.id);
     });
     // Shuffle so each session (and each "Restart session") is a fresh
@@ -2706,7 +2746,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     setDragX(0);
     setExiting(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catFilter, starredOnly, unknownOnly, sessionKey]);
+  }, [catFilter, starredOnly, unknownOnly, includeGrammar, sessionKey]);
 
   const current = cards.find((c) => c.id === poolIds[idx]);
   // Word-only, computed fresh from live cards on every render — always
@@ -2814,6 +2854,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     setAskFor(card.id);
     setAskQuestion("");
     setAskAnswer("");
+    setAskModification(null);
     setAskError("");
   }
 
@@ -2823,18 +2864,42 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
     if (!card) return;
     setAskLoading(true);
     setAskError("");
+    setAskModification(null);
     try {
       const reply = await callAI(
-        "You're a Danish tutor answering one specific follow-up question a learner has about a single flashcard word or phrase they're studying. Answer directly and concisely, in 1-3 short sentences — never more than that, and never pad the answer with extra context they didn't ask for. Write in plain flowing prose only: no headers, no bullet points, no numbered lists, no markdown formatting of any kind.",
-        'The flashcard is: "' + card.front + '" (means: ' + card.back + '). Their question: "' + askQuestion.trim() + '"',
+        "You're a Danish tutor helping with a single flashcard a learner is studying. They'll either ask a genuine question about it, or ask you to modify the card itself — e.g. \"give me the present tense\", \"make this plural\", \"change to past tense\", \"fix the translation\" — work out which from their wording. " +
+          "For a genuine question: answer directly in the reply field, 1-3 short sentences — never more than that, and never pad the answer with extra context they didn't ask for. Write in plain flowing prose only: no headers, no bullet points, no numbered lists, no markdown formatting. Leave newFront and newBack as empty strings. " +
+          "For a modification request: work out the new Danish text and its natural English translation, and put them in newFront and newBack — keep the same conventions the original card used (e.g. keep a noun's en/et article if the original had one, omit it if the original didn't). Leave reply as an empty string, or at most a short one-line confirmation.",
+        'The flashcard is: "' +
+          card.front +
+          '" (means: ' +
+          card.back +
+          '), type: ' +
+          card.type +
+          '. Their message: "' +
+          askQuestion.trim() +
+          '"\n\nRespond ONLY with JSON, no other text: {"reply": "...", "newFront": "...", "newBack": "..."} — use empty strings for whichever don\'t apply.',
         { maxTokens: 300 }
       );
-      setAskAnswer(reply.trim());
+      const parsed = parseJSONLoose(reply);
+      setAskAnswer((parsed.reply || "").trim());
+      if (parsed.newFront && parsed.newFront.trim()) {
+        setAskModification({ front: parsed.newFront.trim(), back: (parsed.newBack || "").trim() });
+      }
     } catch (e) {
       setAskError(apiErrorMessage(e));
     } finally {
       setAskLoading(false);
     }
+  }
+
+  function applyAskModification() {
+    if (!askModification || !askFor) return;
+    updateCard(askFor, { front: askModification.front, back: askModification.back });
+    setAskModification(null);
+    setAskAnswer("");
+    setAskFor(null);
+    showToast("Card updated");
   }
 
   function restartWith(mode) {
@@ -2895,6 +2960,20 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
           <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setStarredOnly(!starredOnly)}>
             <StarIcon size={13} filled={starredOnly} color={starredOnly ? "#C9A66B" : "#C9C4B6"} />
             <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Starred</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setIncludeGrammar(!includeGrammar)}>
+            <span
+              style={{
+                display: "inline-block",
+                width: 10,
+                height: 10,
+                borderRadius: 3,
+                border: "1.6px solid " + (includeGrammar ? "#8C6FA0" : "#C9C4B6"),
+                background: includeGrammar ? "#8C6FA0" : "transparent",
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontFamily: "var(--sans)", fontSize: 12.5, color: "var(--muted)" }}>Grammar</span>
           </div>
           <button
             onClick={() => setLangDir(langDir === "da-first" ? "en-first" : "da-first")}
@@ -3228,7 +3307,7 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
 
       {askFor && (
         <CenteredOverlay onClose={() => setAskFor(null)} maxWidth={380}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--terracotta)" }}>
               Ask about "{cards.find((c) => c.id === askFor)?.front}"
             </div>
@@ -3236,12 +3315,15 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
               <Icon.X size={18} />
             </button>
           </div>
+          <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.4 }}>
+            Ask anything about this word, or tell me how to modify the card — e.g. "give me the present tense" or "make this plural".
+          </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <input
               value={askQuestion}
               onChange={(e) => setAskQuestion(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-              placeholder='e.g. "how do you say the noun version of this?"'
+              placeholder='e.g. "make this plural"'
               style={{ ...inputStyle, flex: 1 }}
             />
             <button onClick={submitAsk} disabled={askLoading || !askQuestion.trim()} style={smallBtn("var(--fjord)")}>
@@ -3250,8 +3332,32 @@ function StudyView({ cards, categories, updateCard, onOpenSettings, showToast, e
           </div>
           {askError && <AIErrorNote message={askError} onOpenSettings={onOpenSettings} />}
           {askAnswer && (
-            <div style={{ background: "var(--paper)", borderRadius: 8, padding: "12px 14px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+            <div style={{ background: "var(--paper)", borderRadius: 8, padding: "12px 14px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: askModification ? 10 : 0 }}>
               {renderInlineMarkdown(askAnswer)}
+            </div>
+          )}
+          {askModification && (
+            <div style={{ background: "var(--paper)", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 11, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>
+                Suggested update
+              </div>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 14, marginBottom: 12 }}>
+                <span style={{ color: "var(--terracotta)" }}>{askModification.front}</span>
+                {askModification.back && (
+                  <>
+                    {" "}
+                    — <span style={{ color: "var(--sage)", fontStyle: "italic" }}>{askModification.back}</span>
+                  </>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={applyAskModification} style={{ ...smallBtn("var(--rust)"), flex: 1, padding: "8px", fontSize: 13 }}>
+                  Update this card
+                </button>
+                <button onClick={() => setAskModification(null)} style={{ ...smallBtn("#A8A395"), flex: 1, padding: "8px", fontSize: 13 }}>
+                  Dismiss
+                </button>
+              </div>
             </div>
           )}
         </CenteredOverlay>
@@ -3303,19 +3409,23 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
     return true;
   });
 
+  const [englishFirst, setEnglishFirst] = useState(false);
+
   // "en"/"et" are grammatical-gender articles Danish nouns are stored
-  // with (e.g. "en hund") — strip them, then skip past any other
+  // with (e.g. "en hund"), and "a"/"an" are their English equivalents
+  // (e.g. "a dog") — strip whichever applies, then skip past any other
   // leading non-letter characters (like the stray "/" in a card whose
   // front is literally "en / et"), so both the sort order and the
   // letter grouping agree on the same real first letter instead of one
   // of them being thrown off by punctuation.
   const sortKey = (word) => {
-    const stripped = word.replace(/^(en|et)\s+/i, "").trim();
+    const stripped = word.replace(/^(en|et|an?)\s+/i, "").trim();
     const match = stripped.match(/[a-zA-ZæøåÆØÅ].*/s);
     return match ? match[0] : stripped;
   };
+  const sortField = (c) => (englishFirst ? c.back : c.front);
   const sorted = [...filtered].sort((a, b) => {
-    const cmp = sortKey(a.front).localeCompare(sortKey(b.front), "da");
+    const cmp = sortKey(sortField(a)).localeCompare(sortKey(sortField(b)), englishFirst ? "en" : "da");
     return sortDir === "desc" ? -cmp : cmp;
   });
 
@@ -3331,7 +3441,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
   };
   const groups = [];
   for (const c of sorted) {
-    const letter = letterOf(c.front);
+    const letter = letterOf(sortField(c));
     const last = groups[groups.length - 1];
     if (last && last.letter === letter) last.cards.push(c);
     else groups.push({ letter, cards: [c] });
@@ -3440,6 +3550,34 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
           {sortDir === "asc" ? "A–Z" : "Z–A"}
           {sortDir === "asc" ? <Icon.ArrowDown size={12} /> : <Icon.ArrowUp size={12} />}
         </button>
+        <button
+          onClick={() => setEnglishFirst((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            border: "1px solid var(--line)",
+            background: "var(--card)",
+            borderRadius: 999,
+            padding: "7px 13px",
+            fontFamily: "var(--sans)",
+            fontSize: 13,
+            whiteSpace: "nowrap",
+            color: "var(--muted)",
+            cursor: "pointer",
+          }}
+        >
+          {englishFirst ? (
+            <>
+              <span style={{ fontStyle: "italic" }}>English</span> → <span style={{ color: "var(--terracotta)" }}>Dansk</span>
+            </>
+          ) : (
+            <>
+              <span style={{ color: "var(--terracotta)" }}>Dansk</span> → <span style={{ fontStyle: "italic" }}>English</span>
+            </>
+          )}
+          <Icon.RotateCcw size={11} />
+        </button>
       </div>
 
       {showFilters && (
@@ -3523,6 +3661,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
                         card={c}
                         categories={categories}
                         editing={editingId === c.id}
+                        englishFirst={englishFirst}
                         onEdit={() => setEditingId(editingId === c.id ? null : c.id)}
                         onSave={(patch) => {
                           updateCard(c.id, patch);
@@ -3530,6 +3669,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
                         }}
                         onToggleStar={() => updateCard(c.id, { starred: !c.starred })}
                         onToggleKnown={() => updateCard(c.id, { known: !c.known })}
+                        onToggleIgnored={() => updateCard(c.id, { ignored: !c.ignored })}
                         onDelete={() => deleteCard(c.id)}
                         onExplore={() => openInsight(c)}
                       />
@@ -3565,7 +3705,7 @@ function LibraryView({ cards, categories, updateCard, deleteCard, persistCategor
   );
 }
 
-function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, onToggleKnown, onDelete, onExplore }) {
+function LibraryRow({ card, categories, editing, englishFirst, onEdit, onSave, onToggleStar, onToggleKnown, onToggleIgnored, onDelete, onExplore }) {
   const [front, setFront] = useState(card.front);
   const [back, setBack] = useState(card.back);
   const [notes, setNotes] = useState(card.notes || "");
@@ -3615,15 +3755,22 @@ function LibraryRow({ card, categories, editing, onEdit, onSave, onToggleStar, o
   }
 
   return (
-    <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8, opacity: card.known ? 0.6 : 1 }}>
+    <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 8, opacity: card.ignored ? 0.45 : card.known ? 0.6 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{card.front}</div>
-          <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: 13, color: "var(--sage)" }}>{card.back}</div>
+          <div style={{ fontFamily: "var(--serif)", fontSize: 16, color: "var(--terracotta)" }}>{englishFirst ? card.back : card.front}</div>
+          <div style={{ fontFamily: "var(--sans)", fontStyle: "italic", fontSize: 13, color: "var(--sage)" }}>{englishFirst ? card.front : card.back}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <CheckBadgeIcon size={15} filled={!!card.known} onClick={onToggleKnown} style={{ cursor: "pointer" }} />
           <StarIcon size={15} filled={!!card.starred} color={card.starred ? "var(--rust)" : "#C9C4B6"} onClick={onToggleStar} style={{ cursor: "pointer" }} />
+          <button
+            onClick={onToggleIgnored}
+            style={{ ...iconBtn, color: card.ignored ? "var(--muted)" : "#C9C4B6" }}
+            aria-label={card.ignored ? "Stop ignoring this card" : "Ignore this card in Study"}
+          >
+            <Icon.EyeOff size={15} />
+          </button>
         </div>
       </div>
       {card.notes && <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{card.notes}</div>}
@@ -3847,16 +3994,19 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
         ))}
       </div>
 
-      <Field label={copy.frontLabel}>
-        <input
-          value={front}
-          onChange={(e) => setFront(e.target.value)}
-          onBlur={(e) => autoFill("da", e.target.value)}
-          style={inputStyle}
-          placeholder={copy.frontPlaceholder}
-        />
+      <Field label={copy.backLabel}>
+        {type === "grammar" ? (
+          <textarea value={back} onChange={(e) => setBack(e.target.value)} style={{ ...inputStyle, minHeight: 70 }} placeholder={copy.backPlaceholder} />
+        ) : (
+          <input
+            value={back}
+            onChange={(e) => setBack(e.target.value)}
+            onBlur={(e) => autoFill("en", e.target.value)}
+            style={inputStyle}
+            placeholder={copy.backPlaceholder}
+          />
+        )}
       </Field>
-
       {(type === "word" || type === "sentence") && (
         <div style={{ display: "flex", justifyContent: "center", margin: "14px 0" }}>
           <button
@@ -3936,18 +4086,14 @@ function AddCardView({ categories, addCategory, addCards, onOpenSettings }) {
         </CenteredOverlay>
       )}
 
-      <Field label={copy.backLabel}>
-        {type === "grammar" ? (
-          <textarea value={back} onChange={(e) => setBack(e.target.value)} style={{ ...inputStyle, minHeight: 70 }} placeholder={copy.backPlaceholder} />
-        ) : (
-          <input
-            value={back}
-            onChange={(e) => setBack(e.target.value)}
-            onBlur={(e) => autoFill("en", e.target.value)}
-            style={inputStyle}
-            placeholder={copy.backPlaceholder}
-          />
-        )}
+      <Field label={copy.frontLabel}>
+        <input
+          value={front}
+          onChange={(e) => setFront(e.target.value)}
+          onBlur={(e) => autoFill("da", e.target.value)}
+          style={inputStyle}
+          placeholder={copy.frontPlaceholder}
+        />
       </Field>
 
       {type === "grammar" && (
@@ -5079,6 +5225,7 @@ function ChatConversation({ engine, categories, addCategory, addCards, showToast
 
 function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSettings }) {
   const [text, setText] = useState("");
+  const textareaRef = useRef(null);
 
   // Translate (quick lookup)
   const [lookupResult, setLookupResult] = useState(null);
@@ -5153,22 +5300,31 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
           // fall through
         }
       }
+      const inputText = text.trim();
+      // Split into two focused calls rather than one that both detects
+      // and translates — a dedicated detection step is more reliable
+      // than asking the model to identify the language while also
+      // composing the translation, where the direction can quietly
+      // default to Danish under the weight of the larger task.
+      const detectionReply = await callAI(
+        "You detect whether a piece of text is written in Danish or English, based only on the actual words used. If it's a genuine mix of both languages, default to \"da\" — this is a Danish-learning app, so mixed text should be treated as Danish needing translation rather than English. Respond with ONLY the two letters \"da\" or \"en\" — nothing else, no punctuation, no explanation.",
+        'Text: "' + inputText + '"',
+        { maxTokens: 10 }
+      );
+      const isEnglish = detectionReply.trim().toLowerCase().replace(/[^a-z]/g, "").startsWith("en");
       const reply = await callAI(
-        "You translate between Danish and English for a language learner. Your first and most important job is to correctly identify which language the input is written in — it will not always be Danish, and treating it as Danish by default is a common mistake to avoid. Then translate it into the other language. Never invent or substitute a different word that merely looks similar to the input — if the input might contain a typo, translate your single best real-word interpretation of what was actually typed, not some other unrelated word. The translation must be ONLY in its target language — never repeat or include the original alongside it. If it's a single Danish noun (on either side), include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water). Never show an article on only one side.",
-        'Identify the language of this text, then translate it: "' +
-          text.trim() +
-          '". Respond ONLY with JSON, no other text: {"detectedLanguage": "da or en", "original": "the input text, cleaned up if needed but in its original language", "translation": "your translation, in the other language"}',
+        "You translate " +
+          (isEnglish ? "English text into natural, fluent Danish" : "Danish text into natural, fluent English") +
+          " for a language learner. Never invent or substitute a different word that merely looks similar to the input — if the input might contain a typo, translate your single best real-word interpretation of what was actually typed, not some other unrelated word. Respond with ONLY the translation itself — no original text alongside it, no notes, no quotation marks. If it's a single Danish noun (on either side), include its grammatical article (en/et) with the Danish form, and match it with a natural English article ('a'/'an') only when the noun is countable that way in English — omit the article on both sides for mass/uncountable nouns (e.g. anger, water).",
+        inputText,
         { maxTokens: 1500 }
       );
-      const parsed = parseJSONLoose(reply);
-      const isEnglish = String(parsed.detectedLanguage || "").toLowerCase().startsWith("en");
-      const original = cleanTranslation(parsed.original);
-      const translation = cleanTranslation(parsed.translation);
-      const da = isEnglish ? translation : original;
-      const en = isEnglish ? original : translation;
+      const translation = cleanTranslation(reply);
+      const da = isEnglish ? translation : inputText;
+      const en = isEnglish ? inputText : translation;
       // If both sides came back the same, the model didn't actually
-      // translate — it just echoed the input into both fields. Treat
-      // that as a failure rather than silently showing a broken result.
+      // translate. Treat that as a failure rather than silently showing
+      // a broken result.
       if (da && en && da.trim().toLowerCase() === en.trim().toLowerCase()) {
         throw new Error("TRANSLATION_DIDNT_HAPPEN");
       }
@@ -5331,6 +5487,7 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
     setSelected({});
     setItemCategory({});
     setError("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
   const lookupIsWordLike = lookupResult && lookupResult.da && lookupResult.da.trim().split(/\s+/).length <= 4;
@@ -5352,10 +5509,15 @@ function TextExtractPanel({ engine, categories, addCategory, addCards, onOpenSet
         explained, or pull out the key vocabulary worth learning from it.
       </div>
       <textarea
+        ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          e.target.style.height = "auto";
+          e.target.style.height = e.target.scrollHeight + "px";
+        }}
         placeholder='e.g. "hyggelig", "hvis jeg kunne, ville jeg", or a longer passage…'
-        style={{ ...inputStyle, minHeight: 100 }}
+        style={{ ...inputStyle, minHeight: 100, overflow: "hidden", resize: "none" }}
       />
       <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
         <button
