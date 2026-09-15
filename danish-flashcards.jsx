@@ -4567,8 +4567,8 @@ function BackupPanel({ cards, categories, replaceAllData, showToast, onClose }) 
         </button>
       </div>
       <div style={{ fontFamily: "var(--sans)", fontSize: 13.5, color: "var(--muted)", lineHeight: 1.55, marginBottom: 16 }}>
-        Export saves your deck as a file; Import restores one. For cross-device progress, export into a synced
-        folder — like iCloud Drive — then Import on the other device.
+        Export saves your deck to a file; Import loads one back in. To carry progress between devices, export into a
+        synced folder (like iCloud Drive), then Import on the other device.
       </div>
       <div
         style={{
@@ -4585,7 +4585,8 @@ function BackupPanel({ cards, categories, replaceAllData, showToast, onClose }) 
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: "var(--sans)", fontSize: 13, fontWeight: 600 }}>Automatic backups</div>
           <div style={{ fontFamily: "var(--sans)", fontSize: 12, color: "var(--muted)", lineHeight: 1.4, marginTop: 2 }}>
-            One-tap backup prompt once a day has passed. Per-device — on here, off elsewhere.
+            Prompts a one-tap backup once it's been a day since your last one. This is a per-device setting —
+            turning it on here won't affect your other devices.
           </div>
         </div>
         <button
